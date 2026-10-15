@@ -163,10 +163,12 @@ class BleBmsService extends BmsDataService {
       await _char!.setNotifyValue(true);
       _sub = _char!.onValueReceived.listen(_onData);
       _connected = true;
-      // 周期发 JK02 读命令（0x96 实时数据 / 0x97 设备信息）
+      // 关键：先发 0x97 唤醒(wakeup)，再周期发 0x96 读实时数据。
+      // 极空 HW15 新固件：必须先唤醒，否则板子不推送单体电压(cell)帧。
+      _write(JkProtocol.buildReadDevice()); // 0x97 唤醒 + 设备信息
+      await Future.delayed(const Duration(milliseconds: 250));
       _pollTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _read());
-      _read();
-      _write(JkProtocol.buildReadDevice()); // 连接后读一次设备信息
+      _read(); // 唤醒后第一次 0x96 读实时数据
       return true;
     } catch (e) {
       lastError = '连接异常：$e';

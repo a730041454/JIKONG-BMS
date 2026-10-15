@@ -148,35 +148,48 @@ class JkDeviceInfo {
 
 class JkParser {
   /// 解析实时数据帧（type=0x02）。
+  ///
+  /// 实测（真机固件 20.28，16 串）cell 帧布局（区别于 syssi 24S/32S 标准）：
+  ///   6..36  单体电压 1..16（2B，0.001V），17..24 为 0
+  ///   76     单体平均（2B，0.001V）
+  ///   78     最大压差（2B，0.001V）
+  ///   80     最高单体序号，81 最低单体序号
+  ///   82..110 均衡线电阻 1..16（2B，0.001Ω）
+  ///   150    总电压（4B，0.001V）
+  ///   174    剩余容量（4B，0.001Ah），178 标称容量（4B，0.001Ah）
+  ///   214/240/254 温度（2B，0.1℃）
   static JkCellInfo parseCell(List<int> f) {
     final u16 = JkProtocol._u16;
     final u32 = JkProtocol._u32;
     final cells = <double>[];
-    for (var i = 0; i < 16; i++) {
+    for (var i = 0; i < 24; i++) {
       cells.add(u16(f, 6 + i * 2) / 1000.0);
     }
     final temps = <double>[];
-    final t1 = u16(f, 130), t2 = u16(f, 132), tm = u16(f, 134);
-    if (t1 > 0) temps.add(t1 / 10.0);
-    if (t2 > 0) temps.add(t2 / 10.0);
-    if (tm > 0) temps.add(tm / 10.0);
+    final t1 = u16(f, 214), t2 = u16(f, 240), tm = u16(f, 254);
+    if (t1 > 0 && t1 < 65500) temps.add(t1 / 10.0);
+    if (t2 > 0 && t2 < 65500) temps.add(t2 / 10.0);
+    if (tm > 0 && tm < 65500) temps.add(tm / 10.0);
+    final nominal = u32(f, 178) / 1000.0;
+    final remaining = u32(f, 174) / 1000.0;
+    final soc = nominal > 0 ? (remaining / nominal * 100.0).clamp(0.0, 100.0) : 0.0;
     return JkCellInfo(
-      totalVoltage: u16(f, 118) / 1000.0,
+      totalVoltage: u32(f, 150) / 1000.0,
       current: JkProtocol._i32(f, 126) / 1000.0,
-      soc: f.length > 141 ? (f[141] & 0xFF).toDouble() : 0.0,
-      remainingAh: u32(f, 142) / 1000.0,
-      nominalAh: u32(f, 146) / 1000.0,
-      cycles: u32(f, 150),
+      soc: soc,
+      remainingAh: remaining,
+      nominalAh: nominal,
+      cycles: 0,
       cellVoltages: cells,
-      avgCellV: u16(f, 58) / 1000.0,
-      deltaV: u16(f, 60) / 1000.0,
-      maxCellIdx: f.length > 62 ? f[62] : 0,
-      minCellIdx: f.length > 63 ? f[63] : 0,
+      avgCellV: u16(f, 76) / 1000.0,
+      deltaV: u16(f, 78) / 1000.0,
+      maxCellIdx: f.length > 80 ? f[80] : 0,
+      minCellIdx: f.length > 81 ? f[81] : 0,
       temperatures: temps,
-      balanceCurrent: u16(f, 138) / 1000.0,
+      balanceCurrent: 0.0,
       chargeMos: f.length > 166 && (f[166] & 0xFF) != 0,
       dischargeMos: f.length > 167 && (f[167] & 0xFF) != 0,
-      balancingActive: f.length > 191 && (f[191] & 0xFF) != 0,
+      balancingActive: f.length > 140 && (f[140] & 0xFF) != 0,
     );
   }
 
