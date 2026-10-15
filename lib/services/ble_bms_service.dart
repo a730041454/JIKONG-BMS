@@ -47,6 +47,9 @@ class BleBmsService extends BmsDataService {
   int _parseOk = 0;
   int _parseFail = 0;
   String _lastFrameHex = '';
+  String _rxLog = '';
+  String _sentHex = '';
+  Timer? _handshakeTimer;
 
   @override
   BmsDiag get diag => BmsDiag(
@@ -58,6 +61,8 @@ class BleBmsService extends BmsDataService {
         parseOk: _parseOk,
         parseFail: _parseFail,
         lastFrameHex: _lastFrameHex,
+        rxLog: _rxLog,
+        sentHex: _sentHex,
       );
 
   @override
@@ -179,24 +184,43 @@ class BleBmsService extends BmsDataService {
   Future<void> _write(List<int> bytes) async {
     final target = _writeChar ?? _char;
     if (target == null) return;
+    _sentHex = bytes
+        .take(48)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
     try {
       await target.write(bytes, withoutResponse: false);
     } catch (_) {}
   }
 
-  /// 收到数据：先处理 AT 握手，再按 0xDD 帧解析。
+  /// 收到数据：记录原始字节；先处理 AT 握手，再按 0xDD 帧解析。
   void _onData(List<int> bytes) {
     _rxBytes += bytes.length;
     _lastFrameHex = bytes
         .take(32)
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join(' ');
-    // AT 握手：收到 "AT" 文本 → 回 "OK\r\n" 进入透传模式
+    // 记录所有原始字节，便于确认板子推送格式（含非 0xDD 数据）
+    final hex = bytes
+        .take(80)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
+    _rxLog = (_rxLog.isEmpty ? '' : '$_rxLog ') + hex;
+    if (_rxLog.length > 560) {
+      _rxLog = _rxLog.substring(_rxLog.length - 560);
+    }
+    // AT 握手：极空透传模块连接后发 "AT\r\n" 等确认。
+    // 双策略：先回 "OK\r\n"，0.5s 后再回 "AT\r\n"(回显确认)。
     if (bytes.length >= 2 && bytes[0] == 0x41 && bytes[1] == 0x54) {
       _write(const [0x4F, 0x4B, 0x0D, 0x0A]); // "OK\r\n"
+      _handshakeTimer?.cancel();
+      _handshakeTimer =
+          Timer(const Duration(milliseconds: 500), () {
+            _write(const [0x41, 0x54, 0x0D, 0x0A]); // "AT\r\n" 回显
+          });
       return;
     }
-    // 非 0xDD 数据则丢弃（透传下的纯文本干扰）
+    // 非 0xDD 数据暂不解析（保留原始记录供诊断）
     if (bytes.isNotEmpty && bytes.first != 0xDD) {
       return;
     }
@@ -267,6 +291,8 @@ class BleBmsService extends BmsDataService {
     _connected = false;
     _pollTimer?.cancel();
     _pollTimer = null;
+    _handshakeTimer?.cancel();
+    _handshakeTimer = null;
     await _sub?.cancel();
     _sub = null;
     try {

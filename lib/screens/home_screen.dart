@@ -291,6 +291,8 @@ class _DiagCard extends StatelessWidget {
           _row('Write特征', d.writeUuid.isEmpty ? '—' : d.writeUuid, dim),
           _row('收帧', '${d.rxBytes}字节 / ${d.rxFrames}帧 / 解析成功${d.parseOk} / 失败${d.parseFail}', dim),
           _row('最近帧', hex, dim),
+          _row('已发', d.sentHex.isEmpty ? '—' : d.sentHex, dim),
+          _row('原始接收', d.rxLog.isEmpty ? '—' : d.rxLog, dim),
           if (app.connectError != null) _row('错误', app.connectError!, dim),
         ],
       ),

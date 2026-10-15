@@ -20,6 +20,8 @@ class BmsDiag {
   final int parseOk; // 解析成功帧数
   final int parseFail; // 解析失败帧数
   final String lastFrameHex; // 最近一帧原始字节(hex)
+  final String rxLog; // 最近收到的全部原始字节(hex)，用于确认板子推送格式
+  final String sentHex; // 最近一次下发的字节(hex)
 
   const BmsDiag({
     this.services = const [],
@@ -30,6 +32,8 @@ class BmsDiag {
     this.parseOk = 0,
     this.parseFail = 0,
     this.lastFrameHex = '',
+    this.rxLog = '',
+    this.sentHex = '',
   });
 
   static const empty = BmsDiag();
