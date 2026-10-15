@@ -119,8 +119,8 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  Widget _m(String k, String v, Color text, Color dim) =>
-      _Metric(label: k, value: v, text: text, dim: dim);
+  _Metric _m(String k, String v, Color text, Color dim) =>
+      _Metric(k, v, text, dim);
 }
 
 Color _stateColor(AppState app) {

@@ -114,7 +114,7 @@ class BleBmsService extends BmsDataService {
   }
 
   /// 累积字节流，按 55 AA 帧头 + 长度拆帧并解析。
-  void _onData(Uint8List bytes) {
+  void _onData(List<int> bytes) {
     _buf.addAll(bytes);
     while (true) {
       if (_buf.length < 6) break;

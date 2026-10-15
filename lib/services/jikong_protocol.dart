@@ -204,9 +204,9 @@ class JkStatusParser {
     final balance = r.remaining >= 2 ? r.readU16() : 0;
 
     return JkParsedStatus(
-      totalVoltage: totalV,
-      current: current,
-      power: totalV * current,
+      totalVoltage: totalV.toDouble(),
+      current: current.toDouble(),
+      power: (totalV * current).toDouble(),
       soc: soc.clamp(0, 100).toDouble(),
       remainingCapacity: remMah * JkRegisterMap.mAhToAh,
       nominalCapacity: nomMah * JkRegisterMap.mAhToAh,

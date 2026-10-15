@@ -22,7 +22,7 @@ class SocGauge extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
       final size = min(c.maxWidth, 264.0);
-      final pct = soc.clamp(0, 100);
+      final pct = soc.clamp(0, 100).toDouble();
       final scheme = Theme.of(context).colorScheme;
       return Stack(
         alignment: Alignment.center,
