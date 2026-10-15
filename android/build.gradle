@@ -12,23 +12,6 @@ subprojects {
 subprojects {
     project.evaluationDependsOn(":app")
 }
-// 统一给所有 Android 子工程（含 flutter_blue_plus 等插件工程）设置 SDK 版本，
-// 解决插件子工程配置时 "compileSdkVersion is not specified" 导致的构建失败。
-subprojects {
-    afterEvaluate { project ->
-        if (project.plugins.hasPlugin("com.android.application") ||
-            project.plugins.hasPlugin("com.android.library")) {
-            project.android {
-                compileSdk 34
-                if (project.plugins.hasPlugin("com.android.library")) {
-                    defaultConfig {
-                        minSdk 21
-                    }
-                }
-            }
-        }
-    }
-}
 
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
