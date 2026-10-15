@@ -236,10 +236,8 @@ class BleBmsService extends BmsDataService {
     final c = _cells;
     if (b == null || c == null) return;
     final cells = c.cellVoltages;
-    final maxV =
-        cells.isEmpty ? 0 : cells.reduce((a, x) => x > a ? x : a);
-    final minV =
-        cells.isEmpty ? 0 : cells.reduce((a, x) => x < a ? x : a);
+    final maxV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x > a ? x : a);
+    final minV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x < a ? x : a);
     _controller.add(BmsData(
       totalVoltage: b.totalVoltage,
       current: b.current,

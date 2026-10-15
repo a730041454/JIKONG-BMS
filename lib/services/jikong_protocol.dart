@@ -142,7 +142,7 @@ class JkParser {
       remainingAh: remAh,
       nominalAh: nomAh,
       cycles: cycles,
-      soc: soc.clamp(0, 100),
+      soc: soc.clamp(0, 100).toDouble(),
       cellCount: cellCount,
       temperatures: temps,
       balanceStatus: balance,
