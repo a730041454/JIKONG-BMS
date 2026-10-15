@@ -29,12 +29,6 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Text(t('about_name'),
-                textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
-          ),
-          const SizedBox(height: 4),
-          Center(
             child: Text(t('about_version'),
                 style: TextStyle(fontSize: 13, color: dim)),
           ),
@@ -44,18 +38,6 @@ class AboutScreen extends StatelessWidget {
             child: Text(t('about_desc'),
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 13, color: dim, height: 1.8)),
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-              decoration: BoxDecoration(
-                  color: AppTheme.green.withOpacity(.12),
-                  borderRadius: BorderRadius.circular(20)),
-              child: const Text('贵州帝一 · BMS 监控',
-                  style: TextStyle(
-                      color: AppTheme.green, fontSize: 12, fontWeight: FontWeight.w600)),
-            ),
           ),
         ],
       ),

@@ -34,7 +34,6 @@ class _HomeShellState extends State<HomeShell> {
         bottom: false,
         child: Column(
           children: [
-            _StatusBar(en: app.isEn),
             _AppBar(
               title: tabs[_index],
               onAdd: () => Navigator.of(context).push(
@@ -224,7 +223,7 @@ class _Nav extends StatelessWidget {
                   const SizedBox(height: 3),
                   Text(labels[i],
                       style: TextStyle(
-                          fontSize: 11,
+                          fontSize: 14,
                           color: on ? AppTheme.green : scheme.onSurface.withOpacity(.5))),
                 ],
               ),
@@ -243,6 +242,7 @@ class PasswordGate {
     final app = context.read<AppState>();
     final ctrl = TextEditingController();
     var err = '';
+    var showPwd = false;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -259,11 +259,16 @@ class PasswordGate {
                 const SizedBox(height: 12),
                 TextField(
                   controller: ctrl,
-                  obscureText: true,
+                  obscureText: !showPwd,
                   autofocus: true,
                   textAlign: TextAlign.center,
                   decoration: InputDecoration(
-                      errorText: err.isEmpty ? null : t('pwd_err')),
+                      errorText: err.isEmpty ? null : t('pwd_err'),
+                      suffixIcon: IconButton(
+                        icon: Icon(showPwd ? Icons.visibility_off : Icons.visibility,
+                            size: 20),
+                        onPressed: () => setS(() => showPwd = !showPwd),
+                      )),
                   onSubmitted: (_) {
                     if (ctrl.text == app.password) {
                       app.pwdUnlocked = true;

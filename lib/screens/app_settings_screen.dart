@@ -148,12 +148,19 @@ class _SwitchRow extends StatelessWidget {
   }
 }
 
-class _Field extends StatelessWidget {
+class _Field extends StatefulWidget {
   final String label;
   final TextEditingController controller;
   final ValueChanged<String> onChanged;
   const _Field(
       {required this.label, required this.controller, required this.onChanged});
+
+  @override
+  State<_Field> createState() => _FieldState();
+}
+
+class _FieldState extends State<_Field> {
+  bool _show = false;
 
   @override
   Widget build(BuildContext context) {
@@ -163,15 +170,22 @@ class _Field extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
       decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(10)),
       child: Row(children: [
-        Expanded(child: Text(label, style: const TextStyle(fontSize: 14))),
+        Expanded(child: Text(widget.label, style: const TextStyle(fontSize: 14))),
         SizedBox(
-          width: 110,
+          width: 150,
           child: TextField(
-            controller: controller,
-            obscureText: true,
+            controller: widget.controller,
+            obscureText: !_show,
             textAlign: TextAlign.right,
-            onChanged: onChanged,
-            decoration: const InputDecoration(isDense: true, border: InputBorder.none),
+            onChanged: widget.onChanged,
+            decoration: InputDecoration(
+              isDense: true,
+              border: InputBorder.none,
+              suffixIcon: IconButton(
+                icon: Icon(_show ? Icons.visibility_off : Icons.visibility, size: 20),
+                onPressed: () => setState(() => _show = !_show),
+              ),
+            ),
           ),
         ),
       ]),

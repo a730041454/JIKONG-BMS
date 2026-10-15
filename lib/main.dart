@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import 'app.dart';
@@ -10,6 +11,9 @@ const bool kUseMock = false;
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  // 隐藏顶部系统状态栏（沉浸式），仅保留底部系统导航条
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+      overlays: const [SystemUiOverlay.bottom]);
   runApp(
     ChangeNotifierProvider(
       create: (_) => AppState(useMock: kUseMock),

@@ -83,10 +83,12 @@ class BleBmsService extends BmsDataService {
       _device = BluetoothDevice.fromId(deviceId);
       await _device!.connect(timeout: const Duration(seconds: 12));
       await _device!.discoverServices();
-      // 在 ffe0 服务内查找 ffe1，或任意可通知(notify/indicate)特征，兼容部分板子特征 UUID 不同
+      // 跨所有服务查找：优先精确 ffe1，其次任意可通知(notify/indicate)特征，
+      // 兼容不同板子的服务/特征 UUID。
       BluetoothCharacteristic? noti;
+      final foundServices = <String>[];
       for (final s in _device!.servicesList) {
-        final isSvc = s.uuid.str.toLowerCase() == serviceUuid;
+        foundServices.add(s.uuid.str);
         for (final c in s.characteristics) {
           final p = c.properties;
           if (!p.notify && !p.indicate) continue;
@@ -94,13 +96,14 @@ class BleBmsService extends BmsDataService {
             noti = c;
             break;
           }
-          if (isSvc && noti == null) noti = c;
+          noti ??= c;
         }
         if (noti != null) break;
       }
       _char = noti;
       if (_char == null) {
-        lastError = '未找到数据特征(ffe0/ffe1)，请确认保护板 BLE 服务';
+        lastError =
+            '未找到可通知特征。板子服务: ${foundServices.isEmpty ? "无" : foundServices.join(", ")}';
         try {
           await _device!.disconnect();
         } catch (_) {}
