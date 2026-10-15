@@ -40,11 +40,7 @@ class _HomeShellState extends State<HomeShell> {
 
   void _goTab(BuildContext context, AppState app, int i) {
     if (i == _index) return;
-    // 参数设置受密码保护
-    if (i == 2 && app.pwdEnabled && !app.pwdUnlocked) {
-      PasswordGate.show(context);
-      return;
-    }
+    // 进入参数设置页不弹密码；修改参数后"保存"时才弹密码确认（见 SettingsScreen._ParamRow）
     setState(() => _index = i);
     _pageCtrl.animateToPage(i,
         duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
@@ -70,7 +66,11 @@ class _HomeShellState extends State<HomeShell> {
             Expanded(
               child: PageView(
                 controller: _pageCtrl,
-                onPageChanged: (i) => setState(() => _index = i),
+                onPageChanged: (i) {
+                  setState(() => _index = i);
+                  // 页面切换时向保护板请求当前页对应数据
+                  context.read<AppState>().requestPage(i);
+                },
                 children: const [LiveScreen(), HomeScreen(), SettingsScreen()],
               ),
             ),

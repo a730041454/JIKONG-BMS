@@ -18,6 +18,7 @@ library;
 class JkProtocol {
   JkProtocol._();
 
+  static const int addrSettings = 0x95; // 设置参数
   static const int addrCell = 0x96; // 实时数据
   static const int addrDevice = 0x97; // 设备信息
 
@@ -49,6 +50,9 @@ class JkProtocol {
 
   /// 读设备信息命令。
   static List<int> buildReadDevice() => _buildRead(addrDevice);
+
+  /// 读设置参数命令。
+  static List<int> buildReadSettings() => _buildRead(addrSettings);
 
   static bool _match(List<int> buf, int h, List<int> pat) {
     for (var i = 0; i < pat.length; i++) {
@@ -137,12 +141,14 @@ class JkDeviceInfo {
   final String swRev; // 固件版本，如 20.28
   final int uptime; // 秒
   final String mfgDate;
+  final String bluetoothPassword; // 蓝牙密码（device 帧 @118，6 位 ASCII）
   const JkDeviceInfo({
     required this.model,
     required this.hwRev,
     required this.swRev,
     required this.uptime,
     required this.mfgDate,
+    required this.bluetoothPassword,
   });
 }
 
@@ -194,6 +200,9 @@ class JkParser {
   }
 
   /// 解析设备信息帧（type=0x03）。
+  ///
+  /// 实测布局：型号@6、硬件@22、固件@30、设备号@86、串口密码@62、
+  /// 蓝牙密码@118（6 位 ASCII）、生产日期@78。
   static JkDeviceInfo parseDevice(List<int> f) {
     return JkDeviceInfo(
       model: JkProtocol._ascii(f, 6, 16),
@@ -201,6 +210,9 @@ class JkParser {
       swRev: JkProtocol._ascii(f, 30, 8),
       uptime: JkProtocol._u32(f, 38),
       mfgDate: JkProtocol._ascii(f, 78, 8),
+      bluetoothPassword: f.length > 118
+          ? JkProtocol._ascii(f, 118, 6)
+          : '',
     );
   }
 }

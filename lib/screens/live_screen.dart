@@ -22,36 +22,152 @@ class LiveScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       children: [
+        // 状态徽标（充/放/均衡，以保护板数据为准）
+        Center(
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            alignment: WrapAlignment.center,
+            children: [
+              _chip(t('st_charging'), app.charging),
+              _chip(t('st_discharging'), app.discharging),
+              _chip(t('st_balancing'), app.balancing),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        // 关键指标：电压 / 电流 / 功率
+        Row(children: [
+          _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
+          const SizedBox(width: 8),
+          _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', green: false),
+          const SizedBox(width: 8),
+          _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', green: false),
+        ]),
+        const SizedBox(height: 10),
+        // 容量 / 剩余 / SOC / 温度
+        _MetricRow([
+          _m(t('rd_cap'), d == null ? dash : '${fmt(app.nominal, 1)}Ah', dim),
+          _m(t('rd_rem'), d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', dim),
+          _m(t('rd_soc'), d == null ? dash : '${fmt(d.soc, 1)}%', dim),
+          _m(t('rd_ptemp'), d == null ? dash : '${fmt(d.maxTemp, 1)}℃', dim),
+        ]),
+        _SecTitle(t('sec_cell'), dim),
+        _CellGrid(app: app),
+        // 温度
+        if (d != null && d.temperatures.isNotEmpty) ...[
+          _SecTitle(t('temp_title'), dim),
+          _TempRow(temps: d.temperatures, dim: dim),
+        ],
+        // 均衡线电阻
+        _SecTitle(t('sec_res'), dim),
+        _ResGrid(app: app),
         _SecTitle(t('rd_title'), dim),
         _Grid(rows: [
-          ('${t('rd_power')} ·', d == null ? dash : '${fmt(d.power, 1)}W', true),
-          ('${t('rd_cap')} ·', d == null ? dash : '${fmt(app.nominal, 1)}Ah', false),
           ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
-          ('${t('rd_rem')} ·', d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', false),
-          ('${t('rd_bcur')} ·', d == null ? dash : '${fmt(app.balancing ? 0.639 : 0, 3)}A', false),
-          ('${t('rd_ptemp')} ·', d == null ? dash : '${fmt(d.maxTemp, 1)}℃', false),
-          ('${t('rd_cycles')} ·', d == null ? dash : '0${t('u_times')}', false),
-          ('${t('rd_t1')} ·', d == null ? dash : '${fmt(d.temperatures.isNotEmpty ? d.temperatures.first : 0, 1)}℃', false),
-          ('${t('rd_ccap')} ·', d == null ? dash : '${fmt(app.nominal * 0.35, 1)}Ah', false),
-          ('${t('rd_t2')} ·', d == null ? dash : '${fmt(d.temperatures.length > 1 ? d.temperatures[1] : 0, 1)}℃', false),
+          ('${t('rd_cycles')} ·', '0${t('u_times')}', false),
           ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
           ('${t('rd_type')} ·', t('li_iron'), false),
           ('${t('rd_buz')} ·', t('off'), false),
           ('${t('rd_bal')} ·', t(app.balancing ? 'on' : 'off'), true),
           ('${t('rd_cells')} ·', '${app.cells}${t('u_series')}', false),
         ]),
-        const SizedBox(height: 12),
-        Row(children: [
-          _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
-          const SizedBox(width: 8),
-          _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', green: false),
-        ]),
-        _SecTitle(t('sec_cell'), dim),
-        _CellGrid(app: app),
-        _SecTitle(t('sec_res'), dim),
-        _ResGrid(app: app),
       ],
     );
+  }
+
+  Widget _chip(String label, bool on) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        decoration: BoxDecoration(
+          color: on ? AppTheme.green.withOpacity(.16) : Theme.of(context).colorScheme.surface,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+              color: on ? AppTheme.green.withOpacity(.5) : Theme.of(context).colorScheme.onSurface.withOpacity(.12)),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: on ? AppTheme.green : dim)),
+      );
+
+  _Metric _m(String k, String v, Color dim) => _Metric(k, v, dim);
+}
+
+class _Metric {
+  final String label;
+  final String value;
+  final Color dim;
+  _Metric(this.label, this.value, this.dim);
+}
+
+class _MetricRow extends StatelessWidget {
+  final List<_Metric> items;
+  const _MetricRow(this.items);
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final surface2 = surface2Of(context);
+    return Container(
+      decoration: BoxDecoration(
+        color: surface2,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: surface2),
+      ),
+      child: Row(children: [
+        for (var i = 0; i < items.length; i++) ...[
+          if (i > 0) Container(width: 1, height: 40, color: surface2),
+          Expanded(
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 2),
+              color: surface,
+              child: Column(children: [
+                Text(items[i].value,
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: AppTheme.green)),
+                const SizedBox(height: 2),
+                Text(items[i].label,
+                    style: TextStyle(fontSize: 10, color: items[i].dim)),
+              ]),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+class _TempRow extends StatelessWidget {
+  final List<double> temps;
+  final Color dim;
+  const _TempRow({required this.temps, required this.dim});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    return Row(children: [
+      for (var i = 0; i < temps.length; i++) ...[
+        if (i > 0) const SizedBox(width: 8),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(vertical: 11),
+            decoration: BoxDecoration(
+                color: surface, borderRadius: BorderRadius.circular(10)),
+            child: Column(children: [
+              Text('T${i + 1}',
+                  style: TextStyle(fontSize: 10, color: dim)),
+              const SizedBox(height: 3),
+              Text(temps[i].toStringAsFixed(1),
+                  style: const TextStyle(
+                      fontSize: 15, fontWeight: FontWeight.w600, color: AppTheme.green)),
+            ]),
+          ),
+        ),
+      ],
+    ]);
   }
 }
 

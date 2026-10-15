@@ -55,7 +55,7 @@ class AppState extends ChangeNotifier {
   double get minCellV => data?.minCellV ?? 0;
   double get totalVoltage => data?.totalVoltage ?? 0;
   double get current => data?.current ?? 0;
-  double get power => data?.power ?? 0;
+  double get power => (data?.power ?? 0).abs();
   double get soc => data?.soc ?? 0;
   double get maxTemp => data?.maxTemp ?? 0;
   double get remaining => data?.remainingCapacity ?? 0;
@@ -82,13 +82,24 @@ class AppState extends ChangeNotifier {
       m.cells = cells;
       m.nominal = nominal;
     }
+    // 同步保护板蓝牙密码：连接后收到 device 帧时，把应用设置密码更新为保护板密码
+    if (service is _ble.BleBmsService) {
+      (service as _ble.BleBmsService).onBluetoothPassword = (pwd) {
+        if (pwd.isNotEmpty) password = pwd;
+        notifyListeners();
+      };
+    }
     _sub = service.dataStream.listen((d) {
       data = d;
-      // 由协议电流推断充/放（模拟服务会覆盖）。
-      // 实测：该板(固件20.28)电流字段 @158，放电为负、充电为正（极空标准约定）。
+      // 首页充电/放电/均衡开关状态以保护板数据为准（真实 BLE 模式）。
       if (!useMock) {
-        charging = d.current > 1.0;
-        discharging = d.current < -1.0;
+        charging = d.chargeMos;
+        discharging = d.dischargeMos;
+        balancing = d.balancing;
+        // 串数 / 容量以保护板数据为准
+        if (d.nominalCapacity > 0) nominal = d.nominalCapacity;
+        final n = d.cellVoltages.where((v) => v > 0.1).length;
+        if (n > 0) cells = n;
       }
       notifyListeners();
     });
@@ -101,6 +112,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<List<BmsDevice>> scan() => service.scan();
+
+  /// 页面切换时向保护板请求当前页对应数据（一次性低频）。
+  void requestPage(int index) {
+    if (service is _ble.BleBmsService) {
+      (service as _ble.BleBmsService).requestPage(index);
+    }
+  }
 
   Future<bool> connect(String deviceId, {bool auto = false}) async {
     connectError = null;
@@ -134,22 +152,29 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- 首页开关 ----
+  // ---- 首页开关（状态以保护板数据为准）----
+  /// 真实模式下开关由保护板控制，本地不覆盖其状态。
   void toggleCharge() {
     charging = !charging;
-    if (useMock) (service as MockBmsService).setCharge(charging);
+    if (useMock) {
+      (service as MockBmsService).setCharge(charging);
+    }
     notifyListeners();
   }
 
   void toggleDischarge() {
     discharging = !discharging;
-    if (useMock) (service as MockBmsService).setDischarge(discharging);
+    if (useMock) {
+      (service as MockBmsService).setDischarge(discharging);
+    }
     notifyListeners();
   }
 
   void toggleBalance() {
     balancing = !balancing;
-    if (useMock) (service as MockBmsService).setBalance(balancing);
+    if (useMock) {
+      (service as MockBmsService).setBalance(balancing);
+    }
     notifyListeners();
   }
 

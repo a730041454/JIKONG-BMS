@@ -17,6 +17,25 @@ class _SettingsScreenState extends State<SettingsScreen> {
   final _capCtrl = TextEditingController(text: '100');
 
   @override
+  void initState() {
+    super.initState();
+    // 串数/容量以保护板数据为准（连接后 AppState 已从保护板帧同步）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final app = context.read<AppState>();
+      _cellsCtrl.text = app.cells.toString();
+      _capCtrl.text = app.nominal.toStringAsFixed(1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _cellsCtrl.dispose();
+    _capCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final t = (k) => L.tr(app.isEn, k);

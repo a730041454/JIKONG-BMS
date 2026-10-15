@@ -18,11 +18,14 @@ class BleBmsService extends BmsDataService {
   final String serviceUuid;
   final String charUuid;
   final int cellCount;
+  /// 收到保护板 device 帧时回调其蓝牙密码（用于同步到应用设置密码）。
+  ValueChanged<String>? onBluetoothPassword;
 
   BleBmsService({
     this.serviceUuid = '0000ffe0-0000-1000-8000-00805f9b34fb',
     this.charUuid = '0000ffe1-0000-1000-8000-00805f9b34fb',
     this.cellCount = 16,
+    this.onBluetoothPassword,
   });
 
   BluetoothDevice? _device;
@@ -187,6 +190,18 @@ class BleBmsService extends BmsDataService {
     }
   }
 
+  /// 页面切换时按当前页发送对应的参数读请求（一次性低频，非周期查询）。
+  ///   page 0=实时/1=首页 → cell+device；page 2=参数设置 → settings+cell。
+  void requestPage(int page) {
+    if (!_connected) return;
+    _write(JkProtocol.buildReadCell());
+    if (page == 2) {
+      _write(JkProtocol.buildReadSettings());
+    } else {
+      _write(JkProtocol.buildReadDevice());
+    }
+  }
+
   Future<void> _write(List<int> bytes) async {
     final target = _writeChar ?? _char;
     if (target == null) return;
@@ -234,6 +249,8 @@ class BleBmsService extends BmsDataService {
         } else if (type == JkProtocol.typeDevice) {
           _parseOk++;
           _deviceInfo = JkParser.parseDevice(f);
+          final pwd = _deviceInfo?.bluetoothPassword ?? '';
+          if (pwd.isNotEmpty) onBluetoothPassword?.call(pwd);
         } else {
           _parseFail++;
         }
@@ -253,7 +270,8 @@ class BleBmsService extends BmsDataService {
     _controller.add(BmsData(
       totalVoltage: c.totalVoltage,
       current: c.current,
-      power: c.totalVoltage * c.current,
+      // 功率显示为绝对值（电流放电为负，功率只反映量值）
+      power: (c.totalVoltage * c.current).abs(),
       soc: c.soc,
       remainingCapacity: c.remainingAh,
       nominalCapacity: c.nominalAh,
@@ -263,6 +281,8 @@ class BleBmsService extends BmsDataService {
       maxCellV: maxV,
       minCellV: minV,
       balancing: c.balancingActive,
+      chargeMos: c.chargeMos,
+      dischargeMos: c.dischargeMos,
       balanceStatus: c.balancingActive ? 1 : 0,
       logCount: 0,
       cycles: c.cycles,

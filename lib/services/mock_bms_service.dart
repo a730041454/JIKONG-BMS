@@ -71,6 +71,8 @@ class MockBmsService extends BmsDataService {
       maxCellV: maxV,
       minCellV: minV,
       balancing: _balancing,
+      chargeMos: true,
+      dischargeMos: true,
       balanceStatus: _balancing ? 0xFFFF : 0,
       logCount: 49,
       cycles: 0,
