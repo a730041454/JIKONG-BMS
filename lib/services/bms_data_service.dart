@@ -18,6 +18,9 @@ abstract class BmsDataService {
   /// 当前是否已连接。
   bool get isConnected;
 
+  /// 最近一次连接失败的原因（无则 null），用于界面提示。
+  String? get lastError;
+
   /// 扫描发现设备。
   Future<List<BmsDevice>> scan({Duration timeout = const Duration(seconds: 6)});
 

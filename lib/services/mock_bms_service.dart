@@ -10,6 +10,9 @@ class MockBmsService extends BmsDataService {
   final _controller = StreamController<BmsData>.broadcast();
   final _random = Random();
 
+  @override
+  String? get lastError => null;
+
   int _cells = 16;
   double _nominal = 100;
   double _soc = 88;

@@ -37,6 +37,9 @@ class BleBmsService extends BmsDataService {
   bool get isConnected => _connected;
 
   @override
+  String? lastError;
+
+  @override
   Stream<BmsData> get dataStream => _controller.stream;
 
   @override
@@ -75,20 +78,32 @@ class BleBmsService extends BmsDataService {
 
   @override
   Future<bool> connect(String deviceId) async {
+    lastError = null;
     try {
       _device = BluetoothDevice.fromId(deviceId);
       await _device!.connect(timeout: const Duration(seconds: 12));
       await _device!.discoverServices();
+      // 在 ffe0 服务内查找 ffe1，或任意可通知(notify/indicate)特征，兼容部分板子特征 UUID 不同
+      BluetoothCharacteristic? noti;
       for (final s in _device!.servicesList) {
-        if (s.uuid.str.toLowerCase() != serviceUuid) continue;
+        final isSvc = s.uuid.str.toLowerCase() == serviceUuid;
         for (final c in s.characteristics) {
-          if (c.uuid.str.toLowerCase() != charUuid) continue;
-          _char = c;
-          break;
+          final p = c.properties;
+          if (!p.notify && !p.indicate) continue;
+          if (c.uuid.str.toLowerCase() == charUuid) {
+            noti = c;
+            break;
+          }
+          if (isSvc && noti == null) noti = c;
         }
+        if (noti != null) break;
       }
+      _char = noti;
       if (_char == null) {
-        await _device!.disconnect();
+        lastError = '未找到数据特征(ffe0/ffe1)，请确认保护板 BLE 服务';
+        try {
+          await _device!.disconnect();
+        } catch (_) {}
         return false;
       }
       await _char!.setNotifyValue(true);
@@ -98,7 +113,11 @@ class BleBmsService extends BmsDataService {
       _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _read());
       _read();
       return true;
-    } catch (_) {
+    } catch (e) {
+      lastError = '连接异常：$e';
+      try {
+        await _device?.disconnect();
+      } catch (_) {}
       return false;
     }
   }

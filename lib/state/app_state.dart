@@ -43,6 +43,9 @@ class AppState extends ChangeNotifier {
   bool discharging = false;
   bool balancing = true;
 
+  /// 最近一次连接失败的原因（界面提示用）。
+  String? connectError;
+
   StreamSubscription<BmsData>? _sub;
 
   bool get useMock => _useMock;
@@ -82,8 +85,8 @@ class AppState extends ChangeNotifier {
       data = d;
       // 由协议电流推断充/放（模拟服务会覆盖）
       if (!useMock) {
-        charging = d.current > 0.1;
-        discharging = d.current < -0.1;
+        charging = d.current > 1.0;
+        discharging = d.current < -1.0;
       }
       notifyListeners();
     });
@@ -98,6 +101,7 @@ class AppState extends ChangeNotifier {
   Future<List<BmsDevice>> scan() => service.scan();
 
   Future<bool> connect(String deviceId, {bool auto = false}) async {
+    connectError = null;
     final ok = await service.connect(deviceId);
     if (ok) {
       connected = true;
@@ -107,8 +111,10 @@ class AppState extends ChangeNotifier {
       if (useMock && (deviceName.isEmpty || deviceName == 'JK-BMS')) {
         deviceName = deviceId;
       }
-      notifyListeners();
+    } else {
+      connectError = service.lastError ?? '连接失败';
     }
+    notifyListeners();
     return ok;
   }
 
