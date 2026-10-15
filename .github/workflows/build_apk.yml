@@ -40,11 +40,18 @@ jobs:
       - name: Build APK (release)
         run: flutter build apk --release
 
+      - name: Prepare versioned APK
+        run: |
+          VER=$(grep -oP 'flutterVersionName = "\K[^"]+' android/app/build.gradle)
+          echo "APK_VER=${VER}" >> $GITHUB_ENV
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/JikongBMS_${VER}.apk"
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: jikong-bms-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          name: jikong-bms-apk-v${{ env.APK_VER }}
+          path: dist/*.apk
           if-no-files-found: error
 
       - name: Upload keystore (fixed signing)
