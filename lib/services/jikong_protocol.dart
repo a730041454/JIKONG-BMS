@@ -175,7 +175,7 @@ class JkParser {
     final soc = nominal > 0 ? (remaining / nominal * 100.0).clamp(0.0, 100.0) : 0.0;
     return JkCellInfo(
       totalVoltage: u32(f, 150) / 1000.0,
-      current: JkProtocol._i32(f, 126) / 1000.0,
+      current: JkProtocol._i32(f, 220) / 1000.0,
       soc: soc,
       remainingAh: remaining,
       nominalAh: nominal,

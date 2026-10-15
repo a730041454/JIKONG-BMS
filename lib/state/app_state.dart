@@ -84,10 +84,11 @@ class AppState extends ChangeNotifier {
     }
     _sub = service.dataStream.listen((d) {
       data = d;
-      // 由协议电流推断充/放（模拟服务会覆盖）
+      // 由协议电流推断充/放（模拟服务会覆盖）。
+      // 实测：该板(固件20.28)放电时电流为正(+)，充电时电流为负(-)，与常规约定相反。
       if (!useMock) {
-        charging = d.current > 1.0;
-        discharging = d.current < -1.0;
+        discharging = d.current > 1.0;
+        charging = d.current < -1.0;
       }
       notifyListeners();
     });
