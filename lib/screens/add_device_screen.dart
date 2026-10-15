@@ -71,8 +71,8 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
       Navigator.of(context).pop();
     } else {
       final err = app.connectError ?? L.tr(app.isEn, 'disconnected');
-      ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(err, duration: const Duration(seconds: 4))));
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          duration: const Duration(seconds: 4), content: Text(err)));
     }
   }
 
