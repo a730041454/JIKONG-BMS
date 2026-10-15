@@ -54,10 +54,9 @@ class BleBmsService extends BmsDataService {
           ..clear()
           ..addAll(r);
       });
-      await FlutterBluePlus.startScan(timeout: timeout, withServices: [
-        Guid(serviceUuid),
-      ]);
-      await Future.delayed(const Duration(milliseconds: 500));
+      // 全量扫描（不过滤服务 UUID），兼容不同板子的广播服务
+      await FlutterBluePlus.startScan(timeout: timeout);
+      await Future.delayed(const Duration(milliseconds: 900));
     } catch (_) {
       // 无权限或已停止扫描，忽略
     }
