@@ -1,162 +1,193 @@
-/// 极空保护板（JK BMS）串口透传协议实现。
+/// 极空保护板（JK BMS）蓝牙 JK02（55AA）协议实现。
 ///
-/// 极空板内置 BLE 串口透传模块，通信流程：
-///   1. 手机连接 BLE 后，模块主动发 `AT\r\n`（握手）
-///   2. 手机回复 `OK\r\n`，模块进入透传模式
-///   3. 之后手机发送极空 0xDD 帧协议命令，板子以 0xDD 帧应答
+/// 实测（真机 JK-BD6A20S10PD，固件 20.28）：
+///   1. 连接 BLE 后，板子在 FFE1 特征持续发 `AT\r\n`（只是状态提示，
+///      固件不做认证，可忽略）
+///   2. 直接向 FFE1 写 JK02 读命令（55AA 帧），板子即以 55AA 帧回数据
 ///
-/// 0xDD 帧结构（参考极空官方《软件板通用协议》）：
-///   请求：DD <状态0xA5> <命令码> <长度> <数据> <校验2> 77
-///   应答：DD <命令码> <状态> <长度> <数据> <校验2> 77
-///   校验：0x10000 - (命令码 + 长度 + 数据字节和)，取 16 位，高位在前
+/// JK02 读命令（20 字节）：
+///   AA 55 90 EB <地址> <长度> <数据4B> <0x00*9> <CRC1B>
+///     地址 0x96 = 实时数据（单体电压等），0x97 = 设备信息
+///     长度 0x00 表示读；CRC = 前 19 字节之和低字节
+///
+/// 回复帧：55 AA EB 90 <类型> <数据...> <CRC@299>（固定 300 字节，不足补 0）
+///     类型 0x01 = 设置参数，0x02 = 实时数据，0x03 = 设备信息
 library;
 
-/// 极空 0xDD 串口协议。
+/// JK02 协议常量与命令构造。
 class JkProtocol {
   JkProtocol._();
 
-  static const int frameHeader = 0xDD; // 帧头
-  static const int frameTail = 0x77; // 帧尾
-  static const int modeRead = 0xA5; // 读取状态位
+  static const int addrCell = 0x96; // 实时数据
+  static const int addrDevice = 0x97; // 设备信息
 
-  static const int cmdBase = 0x03; // 读基本信息及状态
-  static const int cmdCells = 0x04; // 读电池单体电压
+  static const int typeSettings = 0x01;
+  static const int typeCell = 0x02;
+  static const int typeDevice = 0x03;
 
-  /// 计算请求校验：0x10000 - (cmd + len + data)，返回 [高字节, 低字节]。
-  static List<int> _checksum(int cmd, List<int> data) {
-    var s = cmd + data.length;
-    for (final b in data) {
-      s += b;
+  static const int frameLen = 300; // 回复帧固定长度（CRC 在 299）
+
+  /// 构造 JK02 读命令帧（20 字节）。
+  static List<int> _buildRead(int addr) {
+    final f = List<int>.filled(20, 0);
+    f[0] = 0xAA;
+    f[1] = 0x55;
+    f[2] = 0x90;
+    f[3] = 0xEB;
+    f[4] = addr;
+    f[5] = 0x00; // 长度 0 = 读
+    var crc = 0;
+    for (var i = 0; i < 19; i++) {
+      crc = (crc + f[i]) & 0xFF;
     }
-    final cs = (0x10000 - s) & 0xFFFF;
-    return [(cs >> 8) & 0xFF, cs & 0xFF];
+    f[19] = crc;
+    return f;
   }
 
-  /// 构造读命令帧：DD A5 <cmd> 00 <cs:16be> 77
-  static List<int> buildRead(int cmd) {
-    final cs = _checksum(cmd, const []);
-    return [frameHeader, modeRead, cmd, 0, ...cs, frameTail];
+  /// 读实时数据命令。
+  static List<int> buildReadCell() => _buildRead(addrCell);
+
+  /// 读设备信息命令。
+  static List<int> buildReadDevice() => _buildRead(addrDevice);
+
+  static bool _match(List<int> buf, int h, List<int> pat) {
+    for (var i = 0; i < pat.length; i++) {
+      if (h + i >= buf.length || buf[h + i] != pat[i]) return false;
+    }
+    return true;
   }
 
-  /// 读基本信息及状态命令。
-  static List<int> buildReadBase() => buildRead(cmdBase);
-
-  /// 读单体电压命令。
-  static List<int> buildReadCells() => buildRead(cmdCells);
-
-  /// 从累积缓冲中取出完整的一帧（含 0xDD 头与 0x77 尾）。
-  /// 帧长度由第 4 字节（长度字段）决定：总长 = 长度 + 7。
-  /// 找不到合法帧头返回 null，且不消费缓冲。
+  /// 从累积缓冲中取出一帧（固定 300 字节）。返回完整帧并消费；不足则返回 null。
   static List<int>? tryTakeFrame(List<int> buf) {
-    // 找 0xDD 帧头
-    var h = buf.indexOf(frameHeader);
-    while (h >= 0 && h + 4 <= buf.length) {
-      final len = buf[h + 3];
-      final total = len + 7;
-      if (h + total <= buf.length) {
-        // 校验帧尾
-        if (buf[h + total - 1] == frameTail) {
-          final frame = List.of(buf.sublist(h, h + total));
-          buf.removeRange(0, h + total);
-          return frame;
-        }
-      }
-      // 该位置不是合法帧，继续找下一个 0xDD
-      h = buf.indexOf(frameHeader, h + 1);
+    final h = buf.indexOf(0x55);
+    if (h < 0) return null;
+    if (!_match(buf, h, const [0x55, 0xAA, 0xEB, 0x90]) &&
+        !_match(buf, h, const [0xAA, 0x55, 0xEB, 0x90])) {
+      // 不是帧头，丢弃到下一个 0x55
+      buf.removeRange(0, h + 1);
+      return tryTakeFrame(buf);
     }
-    return null;
+    if (h + frameLen > buf.length) return null; // 等待更多数据
+    final frame = List.of(buf.sublist(h, h + frameLen));
+    buf.removeRange(0, h + frameLen);
+    return frame;
   }
 
-  /// 从完整帧中提取数据段（去掉 头/命令/状态/长度/校验/尾）。
-  /// 返回帧头后的字节（含命令码、状态位、长度、数据）。
-  static List<int> frameBody(List<int> frame) {
-    return frame.sublist(1, frame.length - 3); // 去掉 DD 与 cs2 + 77
+  static int _u16(List<int> d, int i) =>
+      (d[i] & 0xFF) | ((d[i + 1] & 0xFF) << 8);
+  static int _u32(List<int> d, int i) =>
+      (d[i] & 0xFF) |
+      ((d[i + 1] & 0xFF) << 8) |
+      ((d[i + 2] & 0xFF) << 16) |
+      ((d[i + 3] & 0xFF) << 24);
+  static int _i32(List<int> d, int i) {
+    final v = _u32(d, i);
+    return v >= 0x80000000 ? v - 0x100000000 : v;
+  }
+  static String _ascii(List<int> d, int i, int len) {
+    final b = d.sublist(i, i + len);
+    final s = String.fromCharCodes(b).replaceAll('\x00', '').trim();
+    return s;
   }
 }
 
-/// 极空基本状态帧解析结果。
-class JkBaseInfo {
+/// 实时数据解析结果。
+class JkCellInfo {
   final double totalVoltage; // V
   final double current; // A（+充电 / -放电）
+  final double soc; // %
   final double remainingAh;
   final double nominalAh;
   final int cycles;
-  final double soc; // %
-  final int cellCount;
+  final List<double> cellVoltages; // V
+  final double avgCellV; // V
+  final double deltaV; // V
+  final int maxCellIdx; // 1 起
+  final int minCellIdx; // 1 起
   final List<double> temperatures; // ℃
-  final int balanceStatus; // 均衡位图
+  final double balanceCurrent; // A
   final bool chargeMos;
   final bool dischargeMos;
+  final bool balancingActive;
 
-  const JkBaseInfo({
+  const JkCellInfo({
     required this.totalVoltage,
     required this.current,
+    required this.soc,
     required this.remainingAh,
     required this.nominalAh,
     required this.cycles,
-    required this.soc,
-    required this.cellCount,
+    required this.cellVoltages,
+    required this.avgCellV,
+    required this.deltaV,
+    required this.maxCellIdx,
+    required this.minCellIdx,
     required this.temperatures,
-    required this.balanceStatus,
+    required this.balanceCurrent,
     required this.chargeMos,
     required this.dischargeMos,
+    required this.balancingActive,
   });
 }
 
-/// 极空单体电压帧解析结果。
-class JkCellsInfo {
-  final List<double> cellVoltages; // V
-  const JkCellsInfo({required this.cellVoltages});
+/// 设备信息解析结果。
+class JkDeviceInfo {
+  final String model; // 型号，如 JK-BD6A20S10PD
+  final String hwRev;
+  final String swRev; // 固件版本，如 20.28
+  final int uptime; // 秒
+  final String mfgDate;
+  const JkDeviceInfo({
+    required this.model,
+    required this.hwRev,
+    required this.swRev,
+    required this.uptime,
+    required this.mfgDate,
+  });
 }
 
 class JkParser {
-  /// 解析基本信息应答帧数据段（命令码之后、校验之前）。
-  /// 数据结构（参考极空通用协议）：
-  ///   总压 2B(10mV) | 总流 2B(10mA,有符号) | 剩余 2B(10mAh) | 标称 2B(10mAh)
-  ///   | 循环 2B | 日期 2B | 均衡 2B | 均衡高 2B | 保护 2B | 保留 1B
-  ///   | SOC 1B(%) | FET 1B | 串数 1B | NTC数 1B | NTC 2*N (0.1K, 2731偏移)
-  static JkBaseInfo parseBase(List<int> d) {
-    int u16(int i) => (d[i] << 8) | d[i + 1];
-    final totalV = u16(0) * 0.01;
-    final cur = (u16(2) >= 0x8000 ? u16(2) - 0x10000 : u16(2)) * 0.01;
-    final remAh = u16(4) * 0.01;
-    final nomAh = u16(6) * 0.01;
-    final cycles = u16(8);
-    // d[10..11] 生产日期
-    final balance = u16(12);
-    // d[14..15] 均衡高
-    // d[16..17] 保护状态
-    // d[18] 保留
-    final soc = d.length > 19 ? d[19].toDouble() : 0;
-    final fet = d.length > 20 ? d[20] : 0;
-    final cellCount = d.length > 21 ? d[21] : 0;
-    final ntcCount = d.length > 22 ? d[22] : 0;
-    final temps = <double>[];
-    for (var i = 0; i < ntcCount && 23 + i * 2 + 1 < d.length; i++) {
-      final raw = u16(23 + i * 2);
-      temps.add((raw - 2731) / 10.0);
+  /// 解析实时数据帧（type=0x02）。
+  static JkCellInfo parseCell(List<int> f) {
+    final u16 = JkProtocol._u16;
+    final u32 = JkProtocol._u32;
+    final cells = <double>[];
+    for (var i = 0; i < 16; i++) {
+      cells.add(u16(f, 6 + i * 2) / 1000.0);
     }
-    return JkBaseInfo(
-      totalVoltage: totalV,
-      current: cur,
-      remainingAh: remAh,
-      nominalAh: nomAh,
-      cycles: cycles,
-      soc: soc.clamp(0, 100).toDouble(),
-      cellCount: cellCount,
+    final temps = <double>[];
+    final t1 = u16(f, 130), t2 = u16(f, 132), tm = u16(f, 134);
+    if (t1 > 0) temps.add(t1 / 10.0);
+    if (t2 > 0) temps.add(t2 / 10.0);
+    if (tm > 0) temps.add(tm / 10.0);
+    return JkCellInfo(
+      totalVoltage: u16(f, 118) / 1000.0,
+      current: JkProtocol._i32(f, 126) / 1000.0,
+      soc: f.length > 141 ? (f[141] & 0xFF).toDouble() : 0.0,
+      remainingAh: u32(f, 142) / 1000.0,
+      nominalAh: u32(f, 146) / 1000.0,
+      cycles: u32(f, 150),
+      cellVoltages: cells,
+      avgCellV: u16(f, 58) / 1000.0,
+      deltaV: u16(f, 60) / 1000.0,
+      maxCellIdx: f.length > 62 ? f[62] : 0,
+      minCellIdx: f.length > 63 ? f[63] : 0,
       temperatures: temps,
-      balanceStatus: balance,
-      chargeMos: (fet & 0x01) != 0,
-      dischargeMos: (fet & 0x02) != 0,
+      balanceCurrent: u16(f, 138) / 1000.0,
+      chargeMos: f.length > 166 && (f[166] & 0xFF) != 0,
+      dischargeMos: f.length > 167 && (f[167] & 0xFF) != 0,
+      balancingActive: f.length > 191 && (f[191] & 0xFF) != 0,
     );
   }
 
-  /// 解析单体电压应答帧数据段：每串 2B(mV，高位在前)。
-  static JkCellsInfo parseCells(List<int> d) {
-    final cells = <double>[];
-    for (var i = 0; i + 1 < d.length; i += 2) {
-      cells.add(((d[i] << 8) | d[i + 1]) / 1000.0);
-    }
-    return JkCellsInfo(cellVoltages: cells);
+  /// 解析设备信息帧（type=0x03）。
+  static JkDeviceInfo parseDevice(List<int> f) {
+    return JkDeviceInfo(
+      model: JkProtocol._ascii(f, 6, 16),
+      hwRev: JkProtocol._ascii(f, 22, 8),
+      swRev: JkProtocol._ascii(f, 30, 8),
+      uptime: JkProtocol._u32(f, 38),
+      mfgDate: JkProtocol._ascii(f, 78, 8),
+    );
   }
 }

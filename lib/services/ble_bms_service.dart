@@ -34,9 +34,9 @@ class BleBmsService extends BmsDataService {
   bool _connected = false;
 
   // 最近解析的帧数据
-  JkBaseInfo? _base;
-  JkCellsInfo? _cells;
-  bool _toggle = false;
+  JkCellInfo? _cell;
+  JkDeviceInfo? _deviceInfo;
+  int _readTick = 0;
 
   // ---- 诊断 ----
   final List<String> _diagServices = [];
@@ -110,8 +110,8 @@ class BleBmsService extends BmsDataService {
   @override
   Future<bool> connect(String deviceId) async {
     lastError = null;
-    _base = null;
-    _cells = null;
+    _cell = null;
+    _deviceInfo = null;
     try {
       _device = BluetoothDevice.fromId(deviceId);
       await _device!.connect(timeout: const Duration(seconds: 12));
@@ -163,10 +163,10 @@ class BleBmsService extends BmsDataService {
       await _char!.setNotifyValue(true);
       _sub = _char!.onValueReceived.listen(_onData);
       _connected = true;
-      // 极空透传握手：连接后主动发 "AT\r\n"，收到板子 AT 时回显确认
-      _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) => _read());
-      _write(const [0x41, 0x54, 0x0D, 0x0A]); // 主动 "AT\r\n"
+      // 周期发 JK02 读命令（0x96 实时数据 / 0x97 设备信息）
+      _pollTimer = Timer.periodic(const Duration(milliseconds: 600), (_) => _read());
       _read();
+      _write(JkProtocol.buildReadDevice()); // 连接后读一次设备信息
       return true;
     } catch (e) {
       lastError = '连接异常：$e';
@@ -178,8 +178,11 @@ class BleBmsService extends BmsDataService {
   }
 
   void _read() {
-    _toggle = !_toggle;
-    _write(_toggle ? JkProtocol.buildReadBase() : JkProtocol.buildReadCells());
+    _readTick++;
+    _write(JkProtocol.buildReadCell());
+    if (_readTick % 20 == 0) {
+      _write(JkProtocol.buildReadDevice());
+    }
   }
 
   Future<void> _write(List<int> bytes) async {
@@ -210,70 +213,57 @@ class BleBmsService extends BmsDataService {
     if (_rxLog.length > 560) {
       _rxLog = _rxLog.substring(_rxLog.length - 560);
     }
-    // AT 握手：极空透传模块连接后发 "AT\r\n" 等确认。
-    // 回显 "AT\r\n"（"OK\r\n" 无效，实测板子仍持续发 AT）
+    // AT 提示帧忽略（极空板连接后持续发，非数据，无需回显）
     if (bytes.length >= 2 && bytes[0] == 0x41 && bytes[1] == 0x54) {
-      _write(const [0x41, 0x54, 0x0D, 0x0A]); // 回显 "AT\r\n"
       return;
     }
-    // 非 0xDD 数据暂不解析（保留原始记录供诊断）
-    if (bytes.isNotEmpty && bytes.first != 0xDD) {
-      return;
-    }
+    // JK02(55AA) 拼帧解析
     _buf.addAll(bytes);
     while (true) {
-      if (_buf.indexOf(0xDD) < 0) {
-        _buf.clear();
-        break;
-      }
       final f = JkProtocol.tryTakeFrame(_buf);
       if (f == null) break;
       _rxFrames++;
-      final body = JkProtocol.frameBody(f); // [cmd, status, length, data...]
-      if (body.length >= 3) {
-        final cmd = body[0];
-        final data = body.sublist(3);
-        if (cmd == JkProtocol.cmdBase) {
+      final type = f[4];
+      try {
+        if (type == JkProtocol.typeCell) {
           _parseOk++;
-          _base = JkParser.parseBase(data);
+          _cell = JkParser.parseCell(f);
           _publish();
-        } else if (cmd == JkProtocol.cmdCells) {
+        } else if (type == JkProtocol.typeDevice) {
           _parseOk++;
-          _cells = JkParser.parseCells(data);
-          _publish();
+          _deviceInfo = JkParser.parseDevice(f);
         } else {
           _parseFail++;
         }
-      } else {
+      } catch (_) {
         _parseFail++;
       }
     }
   }
 
-  /// 基本信息和单体电压都到位后，合成并推送 BmsData。
+  /// 实时数据到位后合成并推送 BmsData。
   void _publish() {
-    final b = _base;
-    final c = _cells;
-    if (b == null || c == null) return;
+    final c = _cell;
+    if (c == null) return;
     final cells = c.cellVoltages;
     final maxV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x > a ? x : a);
     final minV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x < a ? x : a);
     _controller.add(BmsData(
-      totalVoltage: b.totalVoltage,
-      current: b.current,
-      power: b.totalVoltage * b.current,
-      soc: b.soc,
-      remainingCapacity: b.remainingAh,
-      nominalCapacity: b.nominalAh,
+      totalVoltage: c.totalVoltage,
+      current: c.current,
+      power: c.totalVoltage * c.current,
+      soc: c.soc,
+      remainingCapacity: c.remainingAh,
+      nominalCapacity: c.nominalAh,
       cellVoltages: cells,
       cellResistances: List.filled(cells.length, 0.0),
-      temperatures: b.temperatures,
+      temperatures: c.temperatures,
       maxCellV: maxV,
       minCellV: minV,
-      balancing: b.balanceStatus != 0,
-      balanceStatus: b.balanceStatus,
+      balancing: c.balancingActive,
+      balanceStatus: c.balancingActive ? 1 : 0,
       logCount: 0,
-      cycles: b.cycles,
+      cycles: c.cycles,
       sleepSeconds: 86400,
       batteryType: '铁锂',
       buzzerOn: false,
@@ -301,14 +291,14 @@ class BleBmsService extends BmsDataService {
     _char = null;
     _writeChar = null;
     _buf.clear();
-    _base = null;
-    _cells = null;
+    _cell = null;
+    _deviceInfo = null;
   }
 
   @override
   Future<bool> writeRegister(int reg, int value) async {
     try {
-      await _write(JkProtocol.buildReadBase());
+      await _write(JkProtocol.buildReadCell());
       return true;
     } catch (_) {
       return false;
