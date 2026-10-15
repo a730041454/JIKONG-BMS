@@ -163,8 +163,9 @@ class BleBmsService extends BmsDataService {
       await _char!.setNotifyValue(true);
       _sub = _char!.onValueReceived.listen(_onData);
       _connected = true;
-      // 交替下发读命令（基本信息 / 单体电压），并首帧立即读一次
+      // 极空透传握手：连接后主动发 "AT\r\n"，收到板子 AT 时回显确认
       _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) => _read());
+      _write(const [0x41, 0x54, 0x0D, 0x0A]); // 主动 "AT\r\n"
       _read();
       return true;
     } catch (e) {
@@ -210,14 +211,9 @@ class BleBmsService extends BmsDataService {
       _rxLog = _rxLog.substring(_rxLog.length - 560);
     }
     // AT 握手：极空透传模块连接后发 "AT\r\n" 等确认。
-    // 双策略：先回 "OK\r\n"，0.5s 后再回 "AT\r\n"(回显确认)。
+    // 回显 "AT\r\n"（"OK\r\n" 无效，实测板子仍持续发 AT）
     if (bytes.length >= 2 && bytes[0] == 0x41 && bytes[1] == 0x54) {
-      _write(const [0x4F, 0x4B, 0x0D, 0x0A]); // "OK\r\n"
-      _handshakeTimer?.cancel();
-      _handshakeTimer =
-          Timer(const Duration(milliseconds: 500), () {
-            _write(const [0x41, 0x54, 0x0D, 0x0A]); // "AT\r\n" 回显
-          });
+      _write(const [0x41, 0x54, 0x0D, 0x0A]); // 回显 "AT\r\n"
       return;
     }
     // 非 0xDD 数据暂不解析（保留原始记录供诊断）

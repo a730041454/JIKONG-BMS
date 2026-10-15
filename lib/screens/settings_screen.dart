@@ -202,7 +202,11 @@ class _ParamRowState extends State<_ParamRow> {
       widget.controller ?? TextEditingController(text: widget.initial ?? '');
   bool _editing = false;
 
-  Future<void> _askPassword() async {
+  void _startEdit() {
+    setState(() => _editing = true);
+  }
+
+  Future<void> _save() async {
     final app = context.read<AppState>();
     final isEn = app.isEn;
     final input = TextEditingController();
@@ -227,17 +231,17 @@ class _ParamRowState extends State<_ParamRow> {
       ),
     );
     if (ok == true && input.text == app.password) {
-      setState(() => _editing = true);
+      // 密码正确：保存更改
+      (widget.onSave ??
+          () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(L.tr(isEn, 'toast_demo')))))();
+      setState(() => _editing = false);
     } else if (ok == true) {
+      // 密码错误：更改无效
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(L.tr(isEn, 'pwd_wrong'))));
+      setState(() => _editing = false);
     }
-  }
-
-  void _save() {
-    (widget.onSave ??
-        () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(L.tr(context.watch<AppState>().isEn, 'toast_demo')))))();
   }
 
   @override
@@ -255,12 +259,12 @@ class _ParamRowState extends State<_ParamRow> {
             child: Text(widget.label,
                 style: const TextStyle(fontSize: 13))),
         if (!_editing) ...[
-          // 查看模式：直接显示当前值（只读），点"修改"才弹密码
+          // 查看模式：直接显示当前值（只读），点"修改"进入编辑
           Text(_ctrl.text,
               style: const TextStyle(fontSize: 14, color: AppTheme.green)),
           const SizedBox(width: 8),
           InkWell(
-            onTap: _askPassword,
+            onTap: _startEdit,
             borderRadius: BorderRadius.circular(6),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
