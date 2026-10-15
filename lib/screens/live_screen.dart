@@ -25,7 +25,6 @@ class LiveScreen extends StatelessWidget {
         _SecTitle(t('rd_title'), dim),
         _Grid(rows: [
           ('${t('rd_power')} ·', d == null ? dash : '${fmt(d.power, 1)}W', true),
-          ('${t('rd_avg')} ·', d == null ? dash : '${fmt(d.totalVoltage / app.cells, 3)}V', false),
           ('${t('rd_cap')} ·', d == null ? dash : '${fmt(app.nominal, 1)}Ah', false),
           ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
           ('${t('rd_rem')} ·', d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', false),
@@ -35,8 +34,6 @@ class LiveScreen extends StatelessWidget {
           ('${t('rd_t1')} ·', d == null ? dash : '${fmt(d.temperatures.isNotEmpty ? d.temperatures.first : 0, 1)}℃', false),
           ('${t('rd_ccap')} ·', d == null ? dash : '${fmt(app.nominal * 0.35, 1)}Ah', false),
           ('${t('rd_t2')} ·', d == null ? dash : '${fmt(d.temperatures.length > 1 ? d.temperatures[1] : 0, 1)}℃', false),
-          ('${t('rd_etime')} ·', '0s', false),
-          ('${t('rd_log')} ·', d == null ? dash : '${d.logCount}', false),
           ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
           ('${t('rd_type')} ·', t('li_iron'), false),
           ('${t('rd_buz')} ·', t('off'), false),
@@ -53,16 +50,6 @@ class LiveScreen extends StatelessWidget {
         _CellGrid(app: app),
         _SecTitle(t('sec_res'), dim),
         _ResGrid(app: app),
-        const SizedBox(height: 14),
-        FilledButton.tonal(
-          onPressed: () => ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text(t('toast_help')))),
-          style: FilledButton.styleFrom(
-              backgroundColor: surface2Of(context),
-              foregroundColor: Theme.of(context).colorScheme.onSurface,
-              minimumSize: const Size.fromHeight(46)),
-          child: Text(t('help')),
-        ),
       ],
     );
   }

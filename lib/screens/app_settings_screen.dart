@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../i18n/strings.dart';
@@ -14,7 +15,19 @@ class AppSettingsScreen extends StatefulWidget {
 }
 
 class _AppSettingsScreenState extends State<AppSettingsScreen> {
-  final _pwdCtrl = TextEditingController(text: '123456');
+  late final TextEditingController _pwdCtrl;
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _pwdCtrl = TextEditingController(text: context.read<AppState>().password);
+    PackageInfo.fromPlatform().then((p) {
+      if (mounted) setState(() => _version = p.version);
+    }).catchError((_) {
+      if (mounted) setState(() => _version = '');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -52,7 +65,7 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
           _RowBtn(label: t('app_contact_val'),
               onTap: () => toast(t('app_contact_val'))),
           _Sec(t('app_about'), dim),
-          _RowBtn(label: '${t('app')} · v1.0.0', onTap: () {
+          _RowBtn(label: '${t('app')} · v${_version.isEmpty ? '…' : _version}', onTap: () {
             Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AboutScreen()));
           }),

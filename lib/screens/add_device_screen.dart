@@ -54,10 +54,14 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
 
   List<BmsDevice> get _filtered {
     final q = _query.trim().toLowerCase();
-    if (q.isEmpty) return _devices;
-    return _devices
-        .where((d) => d.name.toLowerCase().contains(q) || d.id.contains(q))
-        .toList();
+    final list = q.isEmpty
+        ? List.of(_devices)
+        : _devices
+            .where((d) => d.name.toLowerCase().contains(q) || d.id.contains(q))
+            .toList();
+    // 以信号强度(RSSI)降序排名：信号强(数值大，如-30)排前面
+    list.sort((a, b) => b.rssi.compareTo(a.rssi));
+    return list;
   }
 
   Future<void> _connect(BmsDevice dev) async {
@@ -146,10 +150,14 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
               : _filtered.isEmpty
                   ? Center(child: Text(t('dev_empty'),
                       style: TextStyle(color: dim, fontSize: 14)))
-                  : ListView.builder(
-                      padding: const EdgeInsets.symmetric(horizontal: 14),
-                      itemCount: _filtered.length,
-                      itemBuilder: (c, i) {
+                  : RefreshIndicator(
+                      color: AppTheme.green,
+                      onRefresh: _scan,
+                      child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(horizontal: 14),
+                        itemCount: _filtered.length,
+                        itemBuilder: (c, i) {
                         final d = _filtered[i];
                         return Container(
                           margin: const EdgeInsets.only(bottom: 8),
@@ -183,6 +191,7 @@ class _AddDeviceScreenState extends State<AddDeviceScreen> {
                         );
                       },
                     ),
+                  ),
         ),
         SafeArea(
           child: Padding(

@@ -21,9 +21,34 @@ class HomeShell extends StatefulWidget {
 
 class _HomeShellState extends State<HomeShell> {
   int _index = 1; // 默认进首页
+  late final PageController _pageCtrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _pageCtrl = PageController(initialPage: 1);
+  }
+
+  @override
+  void dispose() {
+    _pageCtrl.dispose();
+    super.dispose();
+  }
 
   String _t(BuildContext context, String k) =>
       L.tr(context.watch<AppState>().isEn, k);
+
+  void _goTab(BuildContext context, AppState app, int i) {
+    if (i == _index) return;
+    // 参数设置受密码保护
+    if (i == 2 && app.pwdEnabled && !app.pwdUnlocked) {
+      PasswordGate.show(context);
+      return;
+    }
+    setState(() => _index = i);
+    _pageCtrl.animateToPage(i,
+        duration: const Duration(milliseconds: 220), curve: Curves.easeOut);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -43,8 +68,9 @@ class _HomeShellState extends State<HomeShell> {
               connected: app.connected,
             ),
             Expanded(
-              child: IndexedStack(
-                index: _index,
+              child: PageView(
+                controller: _pageCtrl,
+                onPageChanged: (i) => setState(() => _index = i),
                 children: const [LiveScreen(), HomeScreen(), SettingsScreen()],
               ),
             ),
@@ -53,14 +79,7 @@ class _HomeShellState extends State<HomeShell> {
       ),
       bottomNavigationBar: _Nav(
         index: _index,
-        onTap: (i) {
-          // 参数设置受密码保护
-          if (i == 2 && app.pwdEnabled && !app.pwdUnlocked) {
-            PasswordGate.show(context);
-            return;
-          }
-          setState(() => _index = i);
-        },
+        onTap: (i) => _goTab(context, app, i),
         labels: tabs,
       ),
     );
