@@ -1,253 +1,162 @@
-/// 极空保护板（JK BMS / JBD）通信协议实现。
+/// 极空保护板（JK BMS）串口透传协议实现。
 ///
-/// 采用社区广泛逆向使用的 JK 帧协议：
-///  - 主机命令帧头：`0x4E 0x57`（即 ASCII "NW"）
-///  - 设备遥测帧头：`0x55 0xAA`
-///  - 校验：对帧头起至校验位前的所有字节做 XOR，取 16 位小端（双字节）
-///  - 命令采用寄存器模型：功能码 0x03 读保持寄存器、0x06 写单寄存器
+/// 极空板内置 BLE 串口透传模块，通信流程：
+///   1. 手机连接 BLE 后，模块主动发 `AT\r\n`（握手）
+///   2. 手机回复 `OK\r\n`，模块进入透传模式
+///   3. 之后手机发送极空 0xDD 帧协议命令，板子以 0xDD 帧应答
 ///
-/// ⚠️ 真实接入前，请用你的板子固件核对（不同型号/固件寄存器地址有差异）：
-///   1. BLE 服务/特征 UUID（见 BleBmsService，默认 ffe0/ffe1）
-///   2. 寄存器映射（见 JkRegisterMap 注释，字段偏移与缩放系数）
-///   3. 是否需先发送"使能"帧才推送遥测（部分固件）
-///
-/// 本文件不依赖 Flutter，可独立单测。
+/// 0xDD 帧结构（参考极空官方《软件板通用协议》）：
+///   请求：DD <状态0xA5> <命令码> <长度> <数据> <校验2> 77
+///   应答：DD <命令码> <状态> <长度> <数据> <校验2> 77
+///   校验：0x10000 - (命令码 + 长度 + 数据字节和)，取 16 位，高位在前
 library;
 
-/// 小端字节读取。
-class ByteReader {
-  final List<int> _data;
-  int _pos = 0;
-  ByteReader(List<int> data) : _data = List.unmodifiable(data);
-  int get remaining => _data.length - _pos;
-  bool get hasMore => _pos < _data.length;
-
-  int readU8() => _data[_pos++];
-  int readU16() {
-    final v = _data[_pos] | (_data[_pos + 1] << 8);
-    _pos += 2;
-    return v;
-  }
-
-  int readU32() {
-    final v = _data[_pos] |
-        (_data[_pos + 1] << 8) |
-        (_data[_pos + 2] << 16) |
-        (_data[_pos + 3] << 24);
-    _pos += 4;
-    return v;
-  }
-
-  /// 有符号电流（补码）。
-  int readI16() {
-    final v = readU16();
-    return v >= 0x8000 ? v - 0x10000 : v;
-  }
-}
-
-/// 极空协议帧工具（帧头 / 校验 / 命令构造 / 遥测解析）。
+/// 极空 0xDD 串口协议。
 class JkProtocol {
   JkProtocol._();
 
-  static const int hostHeader0 = 0x4E; // 'N'
-  static const int hostHeader1 = 0x57; // 'W'
-  static const int teleHeader0 = 0x55;
-  static const int teleHeader1 = 0xAA;
+  static const int frameHeader = 0xDD; // 帧头
+  static const int frameTail = 0x77; // 帧尾
+  static const int modeRead = 0xA5; // 读取状态位
 
-  static const int funcRead = 0x03; // 读保持寄存器
-  static const int funcWrite = 0x06; // 写单寄存器
+  static const int cmdBase = 0x03; // 读基本信息及状态
+  static const int cmdCells = 0x04; // 读电池单体电压
 
-  /// 16 位 XOR 校验（字节流逐字节异或，取低 16 位）。
-  static int xor16(List<int> bytes) {
-    var cs = 0;
-    for (final b in bytes) {
-      cs ^= b;
+  /// 计算请求校验：0x10000 - (cmd + len + data)，返回 [高字节, 低字节]。
+  static List<int> _checksum(int cmd, List<int> data) {
+    var s = cmd + data.length;
+    for (final b in data) {
+      s += b;
     }
-    return cs & 0xFFFF;
+    final cs = (0x10000 - s) & 0xFFFF;
+    return [(cs >> 8) & 0xFF, cs & 0xFF];
   }
 
-  /// 构造"读寄存器"命令帧（主机 → 设备）。
-  /// 布局：4E 57 <len:16le> 03 <reg:16le> <count:16le> <cs:16le>
-  static List<int> buildReadCommand({int reg = 0x00, int count = 0x60}) {
-    final data = <int>[
-      funcRead,
-      reg & 0xFF,
-      (reg >> 8) & 0xFF,
-      count & 0xFF,
-      (count >> 8) & 0xFF,
-    ];
-    final frame = <int>[
-      hostHeader0,
-      hostHeader1,
-      data.length & 0xFF,
-      (data.length >> 8) & 0xFF,
-      ...data,
-    ];
-    final cs = xor16(frame);
-    frame.add(cs & 0xFF);
-    frame.add((cs >> 8) & 0xFF);
-    return frame;
+  /// 构造读命令帧：DD A5 <cmd> 00 <cs:16be> 77
+  static List<int> buildRead(int cmd) {
+    final cs = _checksum(cmd, const []);
+    return [frameHeader, modeRead, cmd, 0, ...cs, frameTail];
   }
 
-  /// 构造"写单寄存器"命令帧（主机 → 设备）。
-  /// 布局：4E 57 <len:16le> 06 <reg:16le> <val:16le> <cs:16le>
-  static List<int> buildWriteRegister(int reg, int value) {
-    final data = <int>[
-      funcWrite,
-      reg & 0xFF,
-      (reg >> 8) & 0xFF,
-      value & 0xFF,
-      (value >> 8) & 0xFF,
-    ];
-    final frame = <int>[
-      hostHeader0,
-      hostHeader1,
-      data.length & 0xFF,
-      (data.length >> 8) & 0xFF,
-      ...data,
-    ];
-    final cs = xor16(frame);
-    frame.add(cs & 0xFF);
-    frame.add((cs >> 8) & 0xFF);
-    return frame;
+  /// 读基本信息及状态命令。
+  static List<int> buildReadBase() => buildRead(cmdBase);
+
+  /// 读单体电压命令。
+  static List<int> buildReadCells() => buildRead(cmdCells);
+
+  /// 从累积缓冲中取出完整的一帧（含 0xDD 头与 0x77 尾）。
+  /// 帧长度由第 4 字节（长度字段）决定：总长 = 长度 + 7。
+  /// 找不到合法帧头返回 null，且不消费缓冲。
+  static List<int>? tryTakeFrame(List<int> buf) {
+    // 找 0xDD 帧头
+    var h = buf.indexOf(frameHeader);
+    while (h >= 0 && h + 4 <= buf.length) {
+      final len = buf[h + 3];
+      final total = len + 7;
+      if (h + total <= buf.length) {
+        // 校验帧尾
+        if (buf[h + total - 1] == frameTail) {
+          final frame = List.of(buf.sublist(h, h + total));
+          buf.removeRange(0, h + total);
+          return frame;
+        }
+      }
+      // 该位置不是合法帧，继续找下一个 0xDD
+      h = buf.indexOf(frameHeader, h + 1);
+    }
+    return null;
   }
 
-  static bool isTelemetry(List<int> data) {
-    return data.length >= 6 && data[0] == teleHeader0 && data[1] == teleHeader1;
-  }
-
-  /// 从遥测帧中剥离校验，返回 [regPayload]（功能码 + 寄存器数据）。
-  /// 校验失败返回 null。布局：55 AA <len:16le> <func> <regs...> <cs:16le>
-  static List<int>? parseTelemetry(List<int> data) {
-    if (!isTelemetry(data)) return null;
-    final len = data[2] | (data[3] << 8);
-    if (data.length < 4 + len + 2) return null;
-    final body = data.sublist(0, 4 + len);
-    final csRaw = data[4 + len] | (data[4 + len + 1] << 8);
-    if (xor16(body) != csRaw) return null;
-    return body.sublist(4); // 去掉 55 AA len，保留 func + regs
+  /// 从完整帧中提取数据段（去掉 头/命令/状态/长度/校验/尾）。
+  /// 返回帧头后的字节（含命令码、状态位、长度、数据）。
+  static List<int> frameBody(List<int> frame) {
+    return frame.sublist(1, frame.length - 3); // 去掉 DD 与 cs2 + 77
   }
 }
 
-/// 极空寄存器映射（典型 JK 布局，地址以"字"为单位）。
-///
-/// ⚠️ 字段偏移与缩放系数请以你的板子固件为准。默认按社区通用版本给出：
-///   - 0x00..        单体电压（0.001 V）
-///   - 温度区         12 路温度（0.1 ℃，有符号，偏移见注释）
-///   - 总电压区        总电压（0.001 V）
-///   - 总电流区        电流（0.001 A，有符号）
-///   - 容量区          剩余/标称容量（mAh）、SOC（0.1%）
-///   - 状态区          均衡位图、循环次数等
-class JkRegisterMap {
-  JkRegisterMap._();
-
-  // ---- 缩放系数 ----
-  static const double cellVScale = 0.001;
-  static const double currentScale = 0.001;
-  static const double tempScale = 0.1;
-  static const double mAhToAh = 1 / 1000.0;
-
-  // ---- 地址（字偏移，相对遥测寄存器数据起始）----
-  // 单体电压区（0x00 起，每串 1 个字）
-  // 温度区
-  static const int tempStart = 0x20; // 12 路
-  // 总量区
-  static const int totalVoltReg = 0x2C;
-  static const int totalCurReg = 0x2D;
-  // 容量区
-  static const int remCapReg = 0x2E; // 4 字节 mAh
-  static const int nomCapReg = 0x30; // 4 字节 mAh
-  static const int cycleReg = 0x32; // 2 字节
-  static const int socReg = 0x34; // 2 字节，0.1%
-  // 均衡区
-  static const int balanceReg = 0x36; // 4 字节位图
-}
-
-/// 从"遥测负载"（func + 寄存器数据）解析出 [JkParsedStatus]。
-/// [cellCount] 由用户设置的串数决定；偏移可按 [JkRegisterMap] 调整。
-class JkStatusParser {
-  final int cellCount;
-
-  JkStatusParser({this.cellCount = 16});
-
-  JkParsedStatus parse(List<int> payload) {
-    final r = ByteReader(payload);
-    // 跳过功能码
-    if (r.hasMore) r.readU8();
-
-    // ---- 单体电压区 ----
-    final cells = <double>[];
-    for (var i = 0; i < cellCount && r.remaining >= 2; i++) {
-      cells.add(r.readU16() * JkRegisterMap.cellVScale);
-    }
-
-    // ---- 温度区（最多 12 路）----
-    final temps = <double>[];
-    while (r.remaining >= 2 && temps.length < 12) {
-      final raw = r.readU16();
-      // 0x4000 位表示负温（部分固件用 2000 偏移）
-      final v = (raw & 0x4000) != 0 ? (raw & 0x3FFF) - 0x4000 : raw.toDouble();
-      temps.add(v * JkRegisterMap.tempScale);
-    }
-
-    // ---- 总量区 ----
-    final totalV = r.hasMore ? r.readU16() * JkRegisterMap.cellVScale : 0;
-    final current = r.hasMore ? r.readI16() * JkRegisterMap.currentScale : 0;
-
-    // ---- 容量区 ----
-    final remMah = r.remaining >= 4 ? r.readU32() : 0;
-    final nomMah = r.remaining >= 4 ? r.readU32() : 0;
-    final cycles = r.remaining >= 2 ? r.readU16() : 0;
-    final soc = r.remaining >= 2 ? r.readU16() * 0.1 : 0;
-
-    // ---- 均衡区（位图）----
-    final balance = r.remaining >= 2 ? r.readU16() : 0;
-
-    return JkParsedStatus(
-      totalVoltage: totalV.toDouble(),
-      current: current.toDouble(),
-      power: (totalV * current).toDouble(),
-      soc: soc.clamp(0, 100).toDouble(),
-      remainingCapacity: remMah * JkRegisterMap.mAhToAh,
-      nominalCapacity: nomMah * JkRegisterMap.mAhToAh,
-      cellVoltages: cells,
-      temperatures: temps,
-      balanceStatus: balance,
-      cycles: cycles,
-    );
-  }
-}
-
-/// 解析结果（协议层独立于 UI 的数据载体）。
-class JkParsedStatus {
-  final double totalVoltage;
-  final double current;
-  final double power;
-  final double soc;
-  final double remainingCapacity;
-  final double nominalCapacity;
-  final List<double> cellVoltages;
-  final List<double> temperatures;
-  final int balanceStatus;
+/// 极空基本状态帧解析结果。
+class JkBaseInfo {
+  final double totalVoltage; // V
+  final double current; // A（+充电 / -放电）
+  final double remainingAh;
+  final double nominalAh;
   final int cycles;
+  final double soc; // %
+  final int cellCount;
+  final List<double> temperatures; // ℃
+  final int balanceStatus; // 均衡位图
+  final bool chargeMos;
+  final bool dischargeMos;
 
-  const JkParsedStatus({
+  const JkBaseInfo({
     required this.totalVoltage,
     required this.current,
-    required this.power,
+    required this.remainingAh,
+    required this.nominalAh,
+    required this.cycles,
     required this.soc,
-    required this.remainingCapacity,
-    required this.nominalCapacity,
-    required this.cellVoltages,
+    required this.cellCount,
     required this.temperatures,
     required this.balanceStatus,
-    required this.cycles,
+    required this.chargeMos,
+    required this.dischargeMos,
   });
+}
 
-  double get maxCellV => cellVoltages.isEmpty
-      ? 0
-      : cellVoltages.reduce((a, b) => a > b ? a : b);
-  double get minCellV => cellVoltages.isEmpty
-      ? 0
-      : cellVoltages.reduce((a, b) => a < b ? a : b);
+/// 极空单体电压帧解析结果。
+class JkCellsInfo {
+  final List<double> cellVoltages; // V
+  const JkCellsInfo({required this.cellVoltages});
+}
+
+class JkParser {
+  /// 解析基本信息应答帧数据段（命令码之后、校验之前）。
+  /// 数据结构（参考极空通用协议）：
+  ///   总压 2B(10mV) | 总流 2B(10mA,有符号) | 剩余 2B(10mAh) | 标称 2B(10mAh)
+  ///   | 循环 2B | 日期 2B | 均衡 2B | 均衡高 2B | 保护 2B | 保留 1B
+  ///   | SOC 1B(%) | FET 1B | 串数 1B | NTC数 1B | NTC 2*N (0.1K, 2731偏移)
+  static JkBaseInfo parseBase(List<int> d) {
+    int u16(int i) => (d[i] << 8) | d[i + 1];
+    final totalV = u16(0) * 0.01;
+    final cur = (u16(2) >= 0x8000 ? u16(2) - 0x10000 : u16(2)) * 0.01;
+    final remAh = u16(4) * 0.01;
+    final nomAh = u16(6) * 0.01;
+    final cycles = u16(8);
+    // d[10..11] 生产日期
+    final balance = u16(12);
+    // d[14..15] 均衡高
+    // d[16..17] 保护状态
+    // d[18] 保留
+    final soc = d.length > 19 ? d[19].toDouble() : 0;
+    final fet = d.length > 20 ? d[20] : 0;
+    final cellCount = d.length > 21 ? d[21] : 0;
+    final ntcCount = d.length > 22 ? d[22] : 0;
+    final temps = <double>[];
+    for (var i = 0; i < ntcCount && 23 + i * 2 + 1 < d.length; i++) {
+      final raw = u16(23 + i * 2);
+      temps.add((raw - 2731) / 10.0);
+    }
+    return JkBaseInfo(
+      totalVoltage: totalV,
+      current: cur,
+      remainingAh: remAh,
+      nominalAh: nomAh,
+      cycles: cycles,
+      soc: soc.clamp(0, 100),
+      cellCount: cellCount,
+      temperatures: temps,
+      balanceStatus: balance,
+      chargeMos: (fet & 0x01) != 0,
+      dischargeMos: (fet & 0x02) != 0,
+    );
+  }
+
+  /// 解析单体电压应答帧数据段：每串 2B(mV，高位在前)。
+  static JkCellsInfo parseCells(List<int> d) {
+    final cells = <double>[];
+    for (var i = 0; i + 1 < d.length; i += 2) {
+      cells.add(((d[i] << 8) | d[i + 1]) / 1000.0);
+    }
+    return JkCellsInfo(cellVoltages: cells);
+  }
 }

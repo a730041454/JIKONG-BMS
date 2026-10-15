@@ -9,10 +9,10 @@ import 'jikong_protocol.dart';
 
 /// 真实极空保护板 BLE 服务。
 ///
-/// 极空板常见 UUID：
-///   - 服务：0xFFE0（0000ffe0-0000-1000-8000-00805f9b34fb）
-///   - 特征：0xFFE1（0000ffe1-...，notify + write）
-/// 部分型号使用 ffe5/ffe9。若你的板子不同，改 [serviceUuid]/[charUuid]。
+/// 极空板内置 BLE 串口透传模块：
+///   - 服务：0xFFE0（0000ffe0-...），特征：0xFFE1（notify + write）
+///   - 连接后模块发 `AT\r\n` 握手，需回 `OK\r\n` 进入透传模式
+///   - 透传后发送极空 0xDD 帧协议命令（读基本信息 0x03 / 读单体 0x04）
 class BleBmsService extends BmsDataService {
   final _controller = StreamController<BmsData>.broadcast();
   final String serviceUuid;
@@ -31,8 +31,12 @@ class BleBmsService extends BmsDataService {
   StreamSubscription? _sub;
   Timer? _pollTimer;
   final List<int> _buf = [];
-  final JkStatusParser _parser = JkStatusParser();
   bool _connected = false;
+
+  // 最近解析的帧数据
+  JkBaseInfo? _base;
+  JkCellsInfo? _cells;
+  bool _toggle = false;
 
   // ---- 诊断 ----
   final List<String> _diagServices = [];
@@ -101,13 +105,13 @@ class BleBmsService extends BmsDataService {
   @override
   Future<bool> connect(String deviceId) async {
     lastError = null;
+    _base = null;
+    _cells = null;
     try {
       _device = BluetoothDevice.fromId(deviceId);
       await _device!.connect(timeout: const Duration(seconds: 12));
       await _device!.discoverServices();
-      // 收集所有服务的 notify 特征与 write 特征，分开处理：
-      //  - notify 特征：订阅，板子在这里推送数据（优先 ffe1，次选任意）
-      //  - write 特征：下发读命令（优先 ffe5/ffe2/ffe3/ffe1，次选任意可写）
+      // 收集所有服务的 notify 特征与 write 特征，分开处理
       final foundServices = <String>[];
       final notiCands = <BluetoothCharacteristic>[];
       final writeCands = <BluetoothCharacteristic>[];
@@ -130,8 +134,7 @@ class BleBmsService extends BmsDataService {
         return first;
       }
       final noti = pick(notiCands, const ['ffe1', 'ffe5', 'ffe9']);
-      var w = pick(writeCands, const ['ffe5', 'ffe2', 'ffe3', 'ffe1', 'ffe9']);
-      // 若没有任何独立可写特征，退而用 notify 特征本身发命令
+      var w = pick(writeCands, const ['ffe1', 'ffe5', 'ffe2', 'ffe3', 'ffe9']);
       w ??= (noti != null &&
               (noti.properties.write || noti.properties.writeWithoutResponse))
           ? noti
@@ -155,8 +158,8 @@ class BleBmsService extends BmsDataService {
       await _char!.setNotifyValue(true);
       _sub = _char!.onValueReceived.listen(_onData);
       _connected = true;
-      // 周期性下发读命令（写到 write 特征），并首帧立即读一次
-      _pollTimer = Timer.periodic(const Duration(milliseconds: 800), (_) => _read());
+      // 交替下发读命令（基本信息 / 单体电压），并首帧立即读一次
+      _pollTimer = Timer.periodic(const Duration(milliseconds: 700), (_) => _read());
       _read();
       return true;
     } catch (e) {
@@ -169,7 +172,8 @@ class BleBmsService extends BmsDataService {
   }
 
   void _read() {
-    _write(JkProtocol.buildReadCommand(reg: 0x00, count: 0x60));
+    _toggle = !_toggle;
+    _write(_toggle ? JkProtocol.buildReadBase() : JkProtocol.buildReadCells());
   }
 
   Future<void> _write(List<int> bytes) async {
@@ -180,68 +184,84 @@ class BleBmsService extends BmsDataService {
     } catch (_) {}
   }
 
-  /// 累积字节流，按 55 AA 帧头 + 长度拆帧并解析。
+  /// 收到数据：先处理 AT 握手，再按 0xDD 帧解析。
   void _onData(List<int> bytes) {
     _rxBytes += bytes.length;
     _lastFrameHex = bytes
         .take(32)
         .map((b) => b.toRadixString(16).padLeft(2, '0'))
         .join(' ');
+    // AT 握手：收到 "AT" 文本 → 回 "OK\r\n" 进入透传模式
+    if (bytes.length >= 2 && bytes[0] == 0x41 && bytes[1] == 0x54) {
+      _write(const [0x4F, 0x4B, 0x0D, 0x0A]); // "OK\r\n"
+      return;
+    }
+    // 非 0xDD 数据则丢弃（透传下的纯文本干扰）
+    if (bytes.isNotEmpty && bytes.first != 0xDD) {
+      return;
+    }
     _buf.addAll(bytes);
     while (true) {
-      if (_buf.length < 6) break;
-      // 对齐帧头
-      final h = _buf.indexOf(0x55);
-      if (h < 0) {
+      if (_buf.indexOf(0xDD) < 0) {
         _buf.clear();
         break;
       }
-      if (h > 0) {
-        _buf.removeRange(0, h);
-      }
-      final len = _buf[2] | (_buf[3] << 8);
-      if (_buf.length < 4 + len + 2) break;
-      final frame = List.of(_buf.sublist(0, 4 + len + 2));
-      _buf.removeRange(0, 4 + len + 2);
+      final f = JkProtocol.tryTakeFrame(_buf);
+      if (f == null) break;
       _rxFrames++;
-      final payload = JkProtocol.parseTelemetry(frame);
-      if (payload != null) {
-        _parseOk++;
-        final p = JkStatusParser(cellCount: cellCount).parse(payload);
-        _controller.add(_toData(p));
+      final body = JkProtocol.frameBody(f); // [cmd, status, length, data...]
+      if (body.length >= 3) {
+        final cmd = body[0];
+        final data = body.sublist(3);
+        if (cmd == JkProtocol.cmdBase) {
+          _parseOk++;
+          _base = JkParser.parseBase(data);
+          _publish();
+        } else if (cmd == JkProtocol.cmdCells) {
+          _parseOk++;
+          _cells = JkParser.parseCells(data);
+          _publish();
+        } else {
+          _parseFail++;
+        }
       } else {
         _parseFail++;
       }
     }
   }
 
-  BmsData _toData(JkParsedStatus p) {
-    final maxV = p.maxCellV, minV = p.minCellV;
-    final delta = maxV - minV;
-    final balancing = p.balanceStatus != 0;
-    return BmsData(
-      totalVoltage: p.totalVoltage,
-      current: p.current,
-      power: p.power,
-      soc: p.soc,
-      remainingCapacity: p.remainingCapacity,
-      nominalCapacity: p.nominalCapacity,
-      cellVoltages: p.cellVoltages,
-      cellResistances:
-          List.filled(p.cellVoltages.length, 0.0), // 均衡线电阻需对应寄存器
-      temperatures: p.temperatures,
+  /// 基本信息和单体电压都到位后，合成并推送 BmsData。
+  void _publish() {
+    final b = _base;
+    final c = _cells;
+    if (b == null || c == null) return;
+    final cells = c.cellVoltages;
+    final maxV =
+        cells.isEmpty ? 0 : cells.reduce((a, x) => x > a ? x : a);
+    final minV =
+        cells.isEmpty ? 0 : cells.reduce((a, x) => x < a ? x : a);
+    _controller.add(BmsData(
+      totalVoltage: b.totalVoltage,
+      current: b.current,
+      power: b.totalVoltage * b.current,
+      soc: b.soc,
+      remainingCapacity: b.remainingAh,
+      nominalCapacity: b.nominalAh,
+      cellVoltages: cells,
+      cellResistances: List.filled(cells.length, 0.0),
+      temperatures: b.temperatures,
       maxCellV: maxV,
       minCellV: minV,
-      balancing: balancing,
-      balanceStatus: p.balanceStatus,
+      balancing: b.balanceStatus != 0,
+      balanceStatus: b.balanceStatus,
       logCount: 0,
-      cycles: p.cycles,
+      cycles: b.cycles,
       sleepSeconds: 86400,
       batteryType: '铁锂',
       buzzerOn: false,
-      alarm: delta > 0.3,
-      alarmDesc: delta > 0.3 ? '单体压差过大' : '',
-    );
+      alarm: (maxV - minV) > 0.3,
+      alarmDesc: (maxV - minV) > 0.3 ? '单体压差过大' : '',
+    ));
   }
 
   @override
@@ -261,12 +281,14 @@ class BleBmsService extends BmsDataService {
     _char = null;
     _writeChar = null;
     _buf.clear();
+    _base = null;
+    _cells = null;
   }
 
   @override
   Future<bool> writeRegister(int reg, int value) async {
     try {
-      await _write(JkProtocol.buildWriteRegister(reg, value));
+      await _write(JkProtocol.buildReadBase());
       return true;
     } catch (_) {
       return false;
