@@ -26,7 +26,8 @@ class BleBmsService extends BmsDataService {
   });
 
   BluetoothDevice? _device;
-  BluetoothCharacteristic? _char;
+  BluetoothCharacteristic? _char; // notify：订阅数据
+  BluetoothCharacteristic? _writeChar; // write：下发命令
   StreamSubscription? _sub;
   Timer? _pollTimer;
   final List<int> _buf = [];
@@ -82,37 +83,55 @@ class BleBmsService extends BmsDataService {
       _device = BluetoothDevice.fromId(deviceId);
       await _device!.connect(timeout: const Duration(seconds: 12));
       await _device!.discoverServices();
-      // 跨所有服务查找：优先精确 ffe1，其次任意可通知(notify/indicate)特征，
-      // 兼容不同板子的服务/特征 UUID。
-      BluetoothCharacteristic? noti;
+      // 收集所有服务的 notify 特征与 write 特征，分开处理：
+      //  - notify 特征：订阅，板子在这里推送数据（优先 ffe1，次选任意）
+      //  - write 特征：下发读命令（优先 ffe5/ffe2/ffe3/ffe1，次选任意可写）
       final foundServices = <String>[];
+      final notiCands = <BluetoothCharacteristic>[];
+      final writeCands = <BluetoothCharacteristic>[];
       for (final s in _device!.servicesList) {
         foundServices.add(s.uuid.str);
         for (final c in s.characteristics) {
           final p = c.properties;
-          if (!p.notify && !p.indicate) continue;
-          if (c.uuid.str.toLowerCase() == charUuid) {
-            noti = c;
-            break;
-          }
-          noti ??= c;
+          if (p.notify || p.indicate) notiCands.add(c);
+          if (p.write || p.writeWithoutResponse) writeCands.add(c);
         }
-        if (noti != null) break;
       }
+      BluetoothCharacteristic? pick(
+          List<BluetoothCharacteristic> cands, List<String> pref) {
+        BluetoothCharacteristic? first;
+        for (final c in cands) {
+          first ??= c;
+          final u = c.uuid.str.toLowerCase();
+          if (pref.any((x) => u.contains(x))) return c;
+        }
+        return first;
+      }
+      final noti = pick(notiCands, const ['ffe1', 'ffe5', 'ffe9']);
+      var w = pick(writeCands, const ['ffe5', 'ffe2', 'ffe3', 'ffe1', 'ffe9']);
+      // 若没有任何独立可写特征，退而用 notify 特征本身发命令
+      w ??= (noti != null &&
+              (noti.properties.write || noti.properties.writeWithoutResponse))
+          ? noti
+          : null;
       _char = noti;
+      _writeChar = w;
       if (_char == null) {
         lastError =
-            '未找到可通知特征。板子服务: ${foundServices.isEmpty ? "无" : foundServices.join(", ")}';
+            '未找到可通知特征(数据上报)。板子服务: ${foundServices.isEmpty ? "无" : foundServices.join(", ")}';
         try {
           await _device!.disconnect();
         } catch (_) {}
         return false;
       }
+      if (_writeChar == null) {
+        lastError = '未找到可写特征(发命令)，将尝试只订阅数据';
+      }
       await _char!.setNotifyValue(true);
       _sub = _char!.onValueReceived.listen(_onData);
       _connected = true;
-      // 周期性下发读命令，触发/获取实时数据
-      _pollTimer = Timer.periodic(const Duration(seconds: 1), (_) => _read());
+      // 周期性下发读命令（写到 write 特征），并首帧立即读一次
+      _pollTimer = Timer.periodic(const Duration(milliseconds: 800), (_) => _read());
       _read();
       return true;
     } catch (e) {
@@ -129,8 +148,10 @@ class BleBmsService extends BmsDataService {
   }
 
   Future<void> _write(List<int> bytes) async {
+    final target = _writeChar ?? _char;
+    if (target == null) return;
     try {
-      await _char?.write(bytes, withoutResponse: false);
+      await target.write(bytes, withoutResponse: false);
     } catch (_) {}
   }
 
@@ -204,6 +225,7 @@ class BleBmsService extends BmsDataService {
     } catch (_) {}
     _device = null;
     _char = null;
+    _writeChar = null;
     _buf.clear();
   }
 
