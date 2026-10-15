@@ -115,6 +115,10 @@ class HomeScreen extends StatelessWidget {
                     color: _stateColor(app))),
           ]),
         ),
+        if (app.connected && !app.useMock) ...[
+          const SizedBox(height: 8),
+          _DiagCard(app: app),
+        ],
       ],
     );
   }
@@ -257,4 +261,58 @@ class _Box extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 连接诊断卡片：显示板子实际暴露的服务/特征与收到的数据帧情况，
+/// 用于定位"能连上但没有数据"的协议/特征匹配问题。
+class _DiagCard extends StatelessWidget {
+  final AppState app;
+  const _DiagCard({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final d = app.diag;
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final surface = Theme.of(context).colorScheme.surface;
+    final hex = d.lastFrameHex.isEmpty ? '—' : d.lastFrameHex;
+    final svc = d.services.isEmpty ? '—' : d.services.join(', ');
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+          color: surface, borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('连接诊断',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          _row('服务', svc, dim),
+          _row('Notify特征', d.notifyUuid.isEmpty ? '—' : d.notifyUuid, dim),
+          _row('Write特征', d.writeUuid.isEmpty ? '—' : d.writeUuid, dim),
+          _row('收帧', '${d.rxBytes}字节 / ${d.rxFrames}帧 / 解析成功${d.parseOk} / 失败${d.parseFail}', dim),
+          _row('最近帧', hex, dim),
+          if (app.connectError != null) _row('错误', app.connectError!, dim),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String k, String v, Color dim) => Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+                width: 64,
+                child: Text(k,
+                    style: TextStyle(fontSize: 11, color: dim))),
+            Expanded(
+                child: Text(v,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFF12D18F),
+                        fontFamily: 'monospace'))),
+          ],
+        ),
+      );
 }

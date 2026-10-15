@@ -16,8 +16,8 @@ if (flutterRoot == null) {
 }
 
 // 版本号（升级时改这里，versionCode 需单调递增）
-def flutterVersionCode = "4"
-def flutterVersionName = "1.0.4"
+def flutterVersionCode = "5"
+def flutterVersionName = "1.0.5"
 
 android {
     namespace = "com.diyi.jikong_bms_app"
@@ -37,10 +37,19 @@ android {
         versionName = flutterVersionName
     }
 
+    // 固定签名，保证每次 APK 可覆盖安装（keystore 由 Actions 生成并回传仓库）
+    signingConfigs {
+        release {
+            storeFile file("keystore.jks")
+            storePassword "jkbms123456"
+            keyAlias "jikong"
+            keyPassword "jkbms123456"
+        }
+    }
+
     buildTypes {
         release {
-            // 测试用 debug 签名，便于直接安装；正式发布请改用正式签名。
-            signingConfig = signingConfigs.debug
+            signingConfig = signingConfigs.release
         }
     }
 }

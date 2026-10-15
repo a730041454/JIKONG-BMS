@@ -200,12 +200,52 @@ class _ParamRow extends StatefulWidget {
 class _ParamRowState extends State<_ParamRow> {
   late final TextEditingController _ctrl =
       widget.controller ?? TextEditingController(text: widget.initial ?? '');
+  bool _editing = false;
+
+  Future<void> _askPassword() async {
+    final app = context.read<AppState>();
+    final isEn = app.isEn;
+    final input = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(L.tr(isEn, 'app_pwd')),
+        content: TextField(
+          controller: input,
+          obscureText: true,
+          autofocus: true,
+          decoration: InputDecoration(hintText: L.tr(isEn, 'pwd_required')),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(L.tr(isEn, 'btn_cancel'))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(L.tr(isEn, 'btn_ok'))),
+        ],
+      ),
+    );
+    if (ok == true && input.text == app.password) {
+      setState(() => _editing = true);
+    } else if (ok == true) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(L.tr(isEn, 'pwd_wrong'))));
+    }
+  }
+
+  void _save() {
+    (widget.onSave ??
+        () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(L.tr(context.watch<AppState>().isEn, 'toast_demo')))))();
+  }
 
   @override
   Widget build(BuildContext context) {
     final surface = Theme.of(context).colorScheme.surface;
     final surface2 = surface2Of(context);
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final isEn = context.watch<AppState>().isEn;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -214,36 +254,50 @@ class _ParamRowState extends State<_ParamRow> {
         Expanded(
             child: Text(widget.label,
                 style: const TextStyle(fontSize: 13))),
-        SizedBox(
-          width: 82,
-          child: TextField(
-            controller: _ctrl,
-            textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, color: AppTheme.green),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding: const EdgeInsets.symmetric(vertical: 7),
-              filled: true,
-              fillColor: surface2,
-              border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6), borderSide: BorderSide.none),
+        if (!_editing) ...[
+          // 查看模式：直接显示当前值（只读），点"修改"才弹密码
+          Text(_ctrl.text,
+              style: const TextStyle(fontSize: 14, color: AppTheme.green)),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _askPassword,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(color: surface2, borderRadius: BorderRadius.circular(6)),
+              child: Text(L.tr(isEn, 'btn_edit'),
+                  style: TextStyle(fontSize: 12, color: dim)),
             ),
           ),
-        ),
-        const SizedBox(width: 8),
-        InkWell(
-          onTap: widget.onSave ??
-              () => ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text(L.tr(
-                      context.watch<AppState>().isEn, 'toast_demo')))),
-          borderRadius: BorderRadius.circular(6),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-            decoration: BoxDecoration(color: surface2, borderRadius: BorderRadius.circular(6)),
-            child: Text(L.tr(context.watch<AppState>().isEn, 'save'),
-                style: TextStyle(fontSize: 12, color: dim)),
+        ] else ...[
+          SizedBox(
+            width: 82,
+            child: TextField(
+              controller: _ctrl,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 14, color: AppTheme.green),
+              decoration: InputDecoration(
+                isDense: true,
+                contentPadding: const EdgeInsets.symmetric(vertical: 7),
+                filled: true,
+                fillColor: surface2,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(6), borderSide: BorderSide.none),
+              ),
+            ),
           ),
-        ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _save,
+            borderRadius: BorderRadius.circular(6),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+              decoration: BoxDecoration(color: surface2, borderRadius: BorderRadius.circular(6)),
+              child: Text(L.tr(isEn, 'save'),
+                  style: TextStyle(fontSize: 12, color: dim)),
+            ),
+          ),
+        ],
       ]),
     );
   }

@@ -34,6 +34,28 @@ class BleBmsService extends BmsDataService {
   final JkStatusParser _parser = JkStatusParser();
   bool _connected = false;
 
+  // ---- 诊断 ----
+  final List<String> _diagServices = [];
+  String _diagNotify = '';
+  String _diagWrite = '';
+  int _rxBytes = 0;
+  int _rxFrames = 0;
+  int _parseOk = 0;
+  int _parseFail = 0;
+  String _lastFrameHex = '';
+
+  @override
+  BmsDiag get diag => BmsDiag(
+        services: List.of(_diagServices),
+        notifyUuid: _diagNotify,
+        writeUuid: _diagWrite,
+        rxBytes: _rxBytes,
+        rxFrames: _rxFrames,
+        parseOk: _parseOk,
+        parseFail: _parseFail,
+        lastFrameHex: _lastFrameHex,
+      );
+
   @override
   bool get isConnected => _connected;
 
@@ -116,6 +138,9 @@ class BleBmsService extends BmsDataService {
           : null;
       _char = noti;
       _writeChar = w;
+      _diagServices..clear()..addAll(foundServices);
+      _diagNotify = _char?.uuid.str ?? '';
+      _diagWrite = _writeChar?.uuid.str ?? '';
       if (_char == null) {
         lastError =
             '未找到可通知特征(数据上报)。板子服务: ${foundServices.isEmpty ? "无" : foundServices.join(", ")}';
@@ -157,6 +182,11 @@ class BleBmsService extends BmsDataService {
 
   /// 累积字节流，按 55 AA 帧头 + 长度拆帧并解析。
   void _onData(List<int> bytes) {
+    _rxBytes += bytes.length;
+    _lastFrameHex = bytes
+        .take(32)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join(' ');
     _buf.addAll(bytes);
     while (true) {
       if (_buf.length < 6) break;
@@ -173,10 +203,14 @@ class BleBmsService extends BmsDataService {
       if (_buf.length < 4 + len + 2) break;
       final frame = List.of(_buf.sublist(0, 4 + len + 2));
       _buf.removeRange(0, 4 + len + 2);
+      _rxFrames++;
       final payload = JkProtocol.parseTelemetry(frame);
       if (payload != null) {
+        _parseOk++;
         final p = JkStatusParser(cellCount: cellCount).parse(payload);
         _controller.add(_toData(p));
+      } else {
+        _parseFail++;
       }
     }
   }

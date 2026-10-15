@@ -1,19 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 
 import '../i18n/strings.dart';
 import '../state/app_state.dart';
-import '../theme/app_theme.dart';
 
-/// 关于页：公司 logo + 名称 + 版本 + 描述。
-class AboutScreen extends StatelessWidget {
+/// 关于页：公司 logo + 名称 + 版本（动态读取）+ 描述。
+class AboutScreen extends StatefulWidget {
   const AboutScreen({super.key});
+  @override
+  State<AboutScreen> createState() => _AboutScreenState();
+}
+
+class _AboutScreenState extends State<AboutScreen> {
+  String _version = '';
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((p) {
+      if (mounted) setState(() => _version = p.version);
+    }).catchError((_) {
+      if (mounted) setState(() => _version = '');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final t = (k) => L.tr(app.isEn, k);
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final versionText =
+        '${t('about_version')} ${_version.isEmpty ? '…' : _version}';
     return Scaffold(
       appBar: AppBar(title: Text(t('about_title'))),
       body: ListView(
@@ -29,7 +47,7 @@ class AboutScreen extends StatelessWidget {
           ),
           const SizedBox(height: 16),
           Center(
-            child: Text(t('about_version'),
+            child: Text(versionText,
                 style: TextStyle(fontSize: 13, color: dim)),
           ),
           const SizedBox(height: 16),

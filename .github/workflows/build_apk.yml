@@ -28,6 +28,15 @@ jobs:
       - name: Flutter pub get
         run: flutter pub get
 
+      - name: Ensure release keystore
+        run: |
+          if [ ! -f android/app/keystore.jks ]; then
+            keytool -genkeypair -v -keystore android/app/keystore.jks \
+              -alias jikong -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass jkbms123456 -keypass jkbms123456 \
+              -dname "CN=JikongBMS, OU=dev, O=dev, L=cn, ST=cn, C=cn"
+          fi
+
       - name: Build APK (release)
         run: flutter build apk --release
 
@@ -36,4 +45,11 @@ jobs:
         with:
           name: jikong-bms-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+      - name: Upload keystore (fixed signing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: jikong-keystore
+          path: android/app/keystore.jks
           if-no-files-found: error

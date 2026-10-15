@@ -49,6 +49,7 @@ class AppState extends ChangeNotifier {
   StreamSubscription<BmsData>? _sub;
 
   bool get useMock => _useMock;
+  BmsDiag get diag => service.diag;
   bool get alarm => data?.alarm ?? false;
   double get maxCellV => data?.maxCellV ?? 0;
   double get minCellV => data?.minCellV ?? 0;
