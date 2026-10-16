@@ -77,11 +77,6 @@ class AppState extends ChangeNotifier {
     return r / c.abs();
   }
 
-  // 历史数据（图表模式用，最多 60 点）
-  final List<double> histSoc = [];
-  final List<double> histVoltage = [];
-  final List<double> histCurrent = [];
-
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
     isEn = prefs.getBool('jk_lang') ?? false;
@@ -116,14 +111,6 @@ class AppState extends ChangeNotifier {
         final n = d.cellVoltages.where((v) => v > 0.1).length;
         if (n > 0) cells = n;
       }
-      // 记录历史（图表模式）
-      final hist = (v, List<double> list) {
-        list.add(v);
-        if (list.length > 60) list.removeAt(0);
-      };
-      hist(d.soc, histSoc);
-      hist(d.totalVoltage, histVoltage);
-      hist(d.current, histCurrent);
       notifyListeners();
     });
     // 记住设备则自动重连

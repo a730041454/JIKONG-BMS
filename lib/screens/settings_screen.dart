@@ -96,12 +96,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _QBtn(t('dc_exp'), () => toast(t('toast_demo'))),
         ]),
         _Section(t('ct_title'), dim),
-        // 充电/放电/均衡开关：状态以保护板数据为准，切换有效
-        _SwitchRow(t('ct_chg'), app.charging, app.toggleCharge),
-        _SwitchRow(t('ct_dis'), app.discharging, app.toggleDischarge),
-        _SwitchRow(t('ct_emer'), false, () => toast(t('toast_demo'))),
-        _SwitchRow(t('ct_gpsc'), false, () => toast(t('toast_demo'))),
-        _SwitchRow(t('ct_gpsd'), false, () => toast(t('toast_demo'))),
+        // 充电/放电/均衡开关：状态以保护板数据为准，点击下发指令后按返回数据刷新
+        _SwitchRow(t('ct_chg'), app.charging, () {
+          app.toggleCharge();
+          toast(t('toast_cmd_sent'));
+        }),
+        _SwitchRow(t('ct_dis'), app.discharging, () {
+          app.toggleDischarge();
+          toast(t('toast_cmd_sent'));
+        }),
         _SwitchRow(t('ct_scr'), true, () => toast(t('toast_demo'))),
         _Section(t('core_title'), dim),
         _ParamRow(
@@ -121,7 +124,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               toast(t('toast_saved'));
             }),
         _Section(t('bal_title'), dim),
-        _SwitchRow(t('bal_sw'), app.balancing, app.toggleBalance),
+        _SwitchRow(t('bal_sw'), app.balancing, () {
+          app.toggleBalance();
+          toast(t('toast_cmd_sent'));
+        }),
         _ParamRow(label: t('bal_dv'), initial: '0.010', demo: true),
         _ParamRow(label: t('bal_sv'), initial: '3.00', demo: true),
         _ParamRow(label: t('bal_cur'), initial: '0.6', demo: true),

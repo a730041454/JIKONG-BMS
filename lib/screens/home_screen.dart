@@ -22,7 +22,12 @@ class HomeScreen extends StatelessWidget {
       children: [
         // 放电开关（充电/均衡开关已移到参数设置页）
         Row(children: [
-          _Switch(k: 'sw_discharge', on: app.discharging, onTap: app.toggleDischarge),
+          _Switch(k: 'sw_discharge', on: app.discharging, onTap: () {
+            app.toggleDischarge();
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(t('toast_cmd_sent')),
+                duration: const Duration(seconds: 1)));
+          }),
         ]),
         const SizedBox(height: 6),
         _HudPanel(
@@ -125,47 +130,9 @@ class HomeScreen extends StatelessWidget {
                     color: _stateColor(app))),
           ]),
         ),
-        const SizedBox(height: 14),
-        // 历史曲线（SOC / 电压 / 电流）
-        _HudPanel(
-          child: Column(children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-              Text(t('chart_title'),
-                  style: const TextStyle(
-                      fontSize: 13, fontWeight: FontWeight.w700, letterSpacing: 1)),
-              Text('${t('rd_soc')} · ${t('lf_volt')} · ${t('lf_cur')}',
-                  style: TextStyle(fontSize: 10, color: dim)),
-            ]),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 150,
-              width: double.infinity,
-              child: CustomPaint(
-                painter: _HomeChartPainter(
-                    app.histSoc, app.histVoltage, app.histCurrent),
-              ),
-            ),
-            const SizedBox(height: 6),
-            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-              _legend(AppTheme.green, t('rd_soc'), dim),
-              const SizedBox(width: 14),
-              _legend(AppTheme.blue, t('lf_volt'), dim),
-              const SizedBox(width: 14),
-              _legend(AppTheme.cyan, t('lf_cur'), dim),
-            ]),
-          ]),
-        ),
       ],
     );
   }
-
-  Widget _legend(Color c, String label, Color dim) => Row(children: [
-        Container(width: 12, height: 3, decoration: BoxDecoration(
-            color: c, borderRadius: BorderRadius.circular(2),
-            boxShadow: [BoxShadow(color: c.withOpacity(.5), blurRadius: 4)])),
-        const SizedBox(width: 4),
-        Text(label, style: TextStyle(fontSize: 11, color: dim)),
-      ]);
 
   _Metric _m(String k, String v, Color text, Color dim,
           {Color valueColor = AppTheme.green}) =>
@@ -420,54 +387,6 @@ class _HudPanel extends StatelessWidget {
       ]),
     );
   }
-}
-
-/// 历史曲线绘图器：SOC（绿）/ 电压（蓝）/ 电流（青），各线归一化绘制。
-class _HomeChartPainter extends CustomPainter {
-  final List<double> soc;
-  final List<double> voltage;
-  final List<double> current;
-  _HomeChartPainter(this.soc, this.voltage, this.current);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final w = size.width, h = size.height;
-    final grid = Paint()..color = const Color(0x22FFFFFF);
-    for (var i = 0; i <= 4; i++) {
-      final y = h * i / 4;
-      canvas.drawLine(Offset(0, y), Offset(w, y), grid);
-    }
-    void drawLine(List<double> data, Color color) {
-      if (data.length < 2) return;
-      var minV = data.reduce((a, b) => a < b ? a : b);
-      var maxV = data.reduce((a, b) => a > b ? a : b);
-      if (maxV - minV < 1e-9) maxV = minV + 1e-9;
-      final p = Paint()
-        ..color = color
-        ..strokeWidth = 2
-        ..style = PaintingStyle.stroke
-        ..strokeJoin = StrokeJoin.round
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.2);
-      final path = Path();
-      for (var i = 0; i < data.length; i++) {
-        final x = w * i / (data.length - 1);
-        final y = h - h * (data[i] - minV) / (maxV - minV);
-        if (i == 0) {
-          path.moveTo(x, y);
-        } else {
-          path.lineTo(x, y);
-        }
-      }
-      canvas.drawPath(path, p);
-    }
-
-    drawLine(soc, AppTheme.green);
-    drawLine(voltage, AppTheme.blue);
-    drawLine(current, AppTheme.cyan);
-  }
-
-  @override
-  bool shouldRepaint(covariant _HomeChartPainter old) => true;
 }
 
 /// 连接诊断卡片已删除（v1.0.15 起不再展示）。
