@@ -285,6 +285,8 @@ class _ParamRowState extends State<_ParamRow> {
       (widget.onSave ??
           () => ScaffoldMessenger.of(context).showSnackBar(SnackBar(
               content: Text(L.tr(isEn, 'toast_demo')))))();
+      // 保存后下发指令再获取数据刷新（真实模式）
+      if (!app.useMock) app.requestPage(1);
       setState(() => _editing = false);
     } else if (ok == true) {
       // 密码错误：更改无效

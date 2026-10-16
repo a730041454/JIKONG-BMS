@@ -16,8 +16,8 @@ if (flutterRoot == null) {
 }
 
 // 版本号（升级时改这里，versionCode 需单调递增）
-def flutterVersionCode = "15"
-def flutterVersionName = "1.0.15"
+def flutterVersionCode = "16"
+def flutterVersionName = "1.0.16"
 
 android {
     namespace = "com.diyi.jikong_bms_app"

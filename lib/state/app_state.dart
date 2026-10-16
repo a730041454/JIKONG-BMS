@@ -60,12 +60,12 @@ class AppState extends ChangeNotifier {
   double get maxTemp => data?.maxTemp ?? 0;
   double get remaining => data?.remainingCapacity ?? 0;
 
-  /// 状态文本 key（按当前电流判断：≥+1A 充电中，≤-1A 放电中，其余空闲）。
+  /// 状态文本 key（按当前电流判断：≥+0.2A 充电中，≤-0.2A 放电中，其余空闲）。
   String get stateKey {
     if (alarm) return 'st_alarm';
     final c = data?.current ?? 0;
-    if (c >= 1.0) return 'st_charging';
-    if (c <= -1.0) return 'st_discharging';
+    if (c >= 0.2) return 'st_charging';
+    if (c <= -0.2) return 'st_discharging';
     return 'st_idle';
   }
 
@@ -105,11 +105,11 @@ class AppState extends ChangeNotifier {
     }
     _sub = service.dataStream.listen((d) {
       data = d;
-      // 首页充电/放电开关状态：以保护板 MOS 为准，同时按电流判断（放电为负、充电为正），
+      // 首页充电/放电开关状态：以保护板 MOS 为准，同时按电流判断（阈值 0.2A），
       // 保证开关随实际负载状态更新。
       if (!useMock) {
-        discharging = d.dischargeMos || d.current <= -1.0;
-        charging = d.chargeMos || d.current >= 1.0;
+        discharging = d.dischargeMos || d.current <= -0.2;
+        charging = d.chargeMos || d.current >= 0.2;
         balancing = d.balancing;
         // 串数 / 容量以保护板数据为准
         if (d.nominalCapacity > 0) nominal = d.nominalCapacity;
@@ -175,28 +175,35 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  // ---- 首页开关（状态以保护板数据为准）----
-  /// 真实模式下开关由保护板控制，本地不覆盖其状态。
+  // ---- 首页开关 ----
+  /// 状态刷新只来自保护板数据：真实模式下点击开关不下发写指令，
+  /// 而是请求一次数据（settings 帧），开关随保护板返回的状态刷新。
   void toggleCharge() {
-    charging = !charging;
     if (useMock) {
+      charging = !charging;
       (service as MockBmsService).setCharge(charging);
+    } else {
+      requestPage(1); // 重新拉取 settings 帧，充电 MOS 状态以返回数据为准
     }
     notifyListeners();
   }
 
   void toggleDischarge() {
-    discharging = !discharging;
     if (useMock) {
+      discharging = !discharging;
       (service as MockBmsService).setDischarge(discharging);
+    } else {
+      requestPage(1); // 重新拉取 settings 帧，放电 MOS 状态以返回数据为准
     }
     notifyListeners();
   }
 
   void toggleBalance() {
-    balancing = !balancing;
     if (useMock) {
+      balancing = !balancing;
       (service as MockBmsService).setBalance(balancing);
+    } else {
+      requestPage(1); // 重新拉取 settings 帧，均衡状态以返回数据为准
     }
     notifyListeners();
   }
@@ -243,6 +250,8 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('jk_cells', cells);
     await prefs.setDouble('jk_cap', nominal);
+    // 真实模式：保存后下发指令（请求 settings 帧）再获取数据刷新
+    if (!useMock) requestPage(1);
     notifyListeners();
   }
 

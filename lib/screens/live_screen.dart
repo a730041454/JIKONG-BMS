@@ -40,14 +40,17 @@ class _LiveScreenState extends State<LiveScreen> {
         if (_chart) ...[
           _ChartCard(app: app),
         ] else ...[
-          // 关键指标：电压 / 电流 / 功率
+          // 关键指标：电压（绿）/ 电流（青）/ 功率（橙），发光
           Row(children: [
-            _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
+            _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', color: AppTheme.green),
             const SizedBox(width: 8),
-            _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', green: false),
+            _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', color: AppTheme.cyan),
             const SizedBox(width: 8),
-            _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', green: false),
+            _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', color: AppTheme.orange),
           ]),
+          const SizedBox(height: 10),
+          // SOC 能量条
+          if (d != null) _SocBar(soc: d.soc, remaining: d.remainingCapacity, nominal: app.nominal),
           const SizedBox(height: 10),
           // 容量 / 剩余 / SOC / 温度
           _MetricRow([
@@ -57,15 +60,22 @@ class _LiveScreenState extends State<LiveScreen> {
             _m(t('rd_ptemp'), d == null ? dash : '${fmt(d.maxTemp, 1)}℃', dim),
           ]),
           _SecTitle(t('sec_cell'), dim),
-          _CellGrid(app: app),
-          // 温度
+          _HudPanel(child: _CellGrid(app: app)),
+          // 温度：T1 保护板 / T2 电池 / T3 机箱内部
           if (d != null && d.temperatures.isNotEmpty) ...[
             _SecTitle(t('temp_title'), dim),
-            _TempRow(temps: d.temperatures, dim: dim),
+            _TempRow(
+              temps: d.temperatures,
+              dim: dim,
+              labels: [
+                t('tp_t1'), t('tp_t2'), t('tp_t3'),
+                ...List.generate(d.temperatures.length - 3, (i) => 'T${i + 4}'),
+              ],
+            ),
           ],
           // 均衡线电阻
           _SecTitle(t('sec_res'), dim),
-          _ResGrid(app: app),
+          _HudPanel(child: _ResGrid(app: app)),
           _SecTitle(t('rd_title'), dim),
           _Grid(rows: [
             ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
@@ -132,7 +142,10 @@ class _MetricRow extends StatelessWidget {
 class _TempRow extends StatelessWidget {
   final List<double> temps;
   final Color dim;
-  const _TempRow({required this.temps, required this.dim});
+  final List<String> labels;
+  const _TempRow({required this.temps, required this.dim, List<String>? labels})
+      : labels = labels ??
+            [for (var i = 0; i < temps.length; i++) 'T${i + 1}'];
 
   @override
   Widget build(BuildContext context) {
@@ -146,7 +159,7 @@ class _TempRow extends StatelessWidget {
             decoration: BoxDecoration(
                 color: surface, borderRadius: BorderRadius.circular(10)),
             child: Column(children: [
-              Text('T${i + 1}',
+              Text(i < labels.length ? labels[i] : 'T${i + 1}',
                   style: TextStyle(fontSize: 10, color: dim)),
               const SizedBox(height: 3),
               Text(temps[i].toStringAsFixed(1),
@@ -210,26 +223,27 @@ class _Grid extends StatelessWidget {
 class _Box extends StatelessWidget {
   final String label;
   final String value;
-  final bool green;
-  const _Box({required this.label, required this.value, required this.green});
+  final Color color;
+  const _Box({required this.label, required this.value, this.color = AppTheme.green});
 
   @override
   Widget build(BuildContext context) {
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
         decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
             borderRadius: BorderRadius.circular(10)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label,
-              style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onSurface.withOpacity(.55))),
-          const SizedBox(height: 2),
+        child: Column(children: [
           Text(value,
               style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: green ? AppTheme.green : Theme.of(context).colorScheme.onSurface)),
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                  shadows: [Shadow(color: color.withOpacity(.45), blurRadius: 10)])),
+          const SizedBox(height: 3),
+          Text(label, style: TextStyle(fontSize: 10, color: dim)),
         ]),
       ),
     );
@@ -461,4 +475,112 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ChartPainter old) => true;
+}
+
+/// SOC 能量条：渐变填充 + 剩余容量 + 0-100 刻度。
+class _SocBar extends StatelessWidget {
+  final double soc;
+  final double remaining;
+  final double nominal;
+  const _SocBar({required this.soc, required this.remaining, required this.nominal});
+
+  @override
+  Widget build(BuildContext context) {
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final surface = Theme.of(context).colorScheme.surface;
+    final pct = soc.clamp(0.0, 100.0) / 100.0;
+    return Container(
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+          color: surface, borderRadius: BorderRadius.circular(12)),
+      child: Column(children: [
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text('SOC', style: TextStyle(fontSize: 12, color: dim)),
+          Text('${soc.toStringAsFixed(1)}% · ${remaining.toStringAsFixed(1)}/${nominal.toStringAsFixed(1)}Ah',
+              style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.green)),
+        ]),
+        const SizedBox(height: 8),
+        Stack(children: [
+          Container(
+            height: 9,
+            decoration: BoxDecoration(
+                color: surface2Of(context), borderRadius: BorderRadius.circular(5)),
+          ),
+          FractionallySizedBox(
+            widthFactor: pct,
+            child: Container(
+              height: 9,
+              decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(5),
+                  gradient: const LinearGradient(
+                      colors: [AppTheme.green, AppTheme.cyan]),
+                  boxShadow: [
+                    BoxShadow(color: AppTheme.green.withOpacity(.5), blurRadius: 8)
+                  ]),
+            ),
+          ),
+        ]),
+        const SizedBox(height: 5),
+        Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+          Text('0', style: TextStyle(fontSize: 9, color: dim)),
+          Text('50', style: TextStyle(fontSize: 9, color: dim)),
+          Text('100%', style: TextStyle(fontSize: 9, color: dim)),
+        ]),
+      ]),
+    );
+  }
+}
+
+/// HUD 面板：半透明深色底 + 霓虹描边 + 四角绿色角标。
+class _HudPanel extends StatelessWidget {
+  final Widget child;
+  const _HudPanel({required this.child});
+
+  Widget _corner(bool top, bool left) => Positioned(
+        top: top ? 6 : null,
+        bottom: top ? null : 6,
+        left: left ? 6 : null,
+        right: left ? null : 6,
+        child: Container(
+          width: 13,
+          height: 13,
+          decoration: BoxDecoration(
+            border: Border(
+              top: top ? const BorderSide(color: AppTheme.green, width: 2) : BorderSide.none,
+              bottom: top ? BorderSide.none : const BorderSide(color: AppTheme.green, width: 2),
+              left: left ? const BorderSide(color: AppTheme.green, width: 2) : BorderSide.none,
+              right: left ? BorderSide.none : const BorderSide(color: AppTheme.green, width: 2),
+            ),
+            borderRadius: BorderRadius.only(
+              topLeft: top && left ? const Radius.circular(8) : Radius.zero,
+              topRight: top && !left ? const Radius.circular(8) : Radius.zero,
+              bottomLeft: !top && left ? const Radius.circular(8) : Radius.zero,
+              bottomRight: !top && !left ? const Radius.circular(8) : Radius.zero,
+            ),
+          ),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.green.withOpacity(.25)),
+      ),
+      child: Stack(children: [
+        child,
+        _corner(true, true),
+        _corner(true, false),
+        _corner(false, true),
+        _corner(false, false),
+      ]),
+    );
+  }
 }
