@@ -95,7 +95,7 @@ class _UpdateRow extends StatelessWidget {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
           decoration: BoxDecoration(
-              color: Theme.of(context).colorScheme.surface2,
+              color: surface2Of(context),
               borderRadius: BorderRadius.circular(6)),
           child: Text(ver,
               style: const TextStyle(

@@ -30,9 +30,11 @@ class _LiveScreenState extends State<LiveScreen> {
       children: [
         // 模式切换：数据 / 图表
         Row(children: [
-          _ModeBtn(t('mode_list'), !_chart, () => setState(() => _chart = false)),
+          _ModeBtn(
+              label: t('mode_list'), on: !_chart, onTap: () => setState(() => _chart = false)),
           const SizedBox(width: 8),
-          _ModeBtn(t('mode_chart'), _chart, () => setState(() => _chart = true)),
+          _ModeBtn(
+              label: t('mode_chart'), on: _chart, onTap: () => setState(() => _chart = true)),
         ]),
         const SizedBox(height: 10),
         if (_chart) ...[
