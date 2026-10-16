@@ -112,20 +112,33 @@ class JkProtocol {
     return true;
   }
 
-  /// 从累积缓冲中取出一帧（固定 300 字节）。返回完整帧并消费；不足则返回 null。
+  /// 从累积缓冲中取出一帧（固定 300 字节，CRC@299 校验）。
+  /// 返回完整帧并消费；不足或校验失败则返回 null。
+  /// 校验失败时丢弃帧头前 1 字节继续寻找，避免数据流中的杂字节（AT 等）误切帧。
   static List<int>? tryTakeFrame(List<int> buf) {
-    final h = buf.indexOf(0x55);
-    if (h < 0) return null;
-    if (!_match(buf, h, const [0x55, 0xAA, 0xEB, 0x90]) &&
-        !_match(buf, h, const [0xAA, 0x55, 0xEB, 0x90])) {
-      // 不是帧头，丢弃到下一个 0x55
+    while (true) {
+      final h = buf.indexOf(0x55);
+      if (h < 0) return null;
+      if (!_match(buf, h, const [0x55, 0xAA, 0xEB, 0x90]) &&
+          !_match(buf, h, const [0xAA, 0x55, 0xEB, 0x90])) {
+        // 不是帧头，丢弃到下一个 0x55
+        buf.removeRange(0, h + 1);
+        continue;
+      }
+      if (h + frameLen > buf.length) return null; // 等待更多数据
+      final frame = List.of(buf.sublist(h, h + frameLen));
+      // CRC 校验：@299 = 前 299 字节和低字节
+      var crc = 0;
+      for (var i = 0; i < 299; i++) {
+        crc = (crc + frame[i]) & 0xFF;
+      }
+      if (crc == frame[299]) {
+        buf.removeRange(0, h + frameLen);
+        return frame;
+      }
+      // 校验失败：丢弃 1 字节继续找（可能是数据流中的巧合序列）
       buf.removeRange(0, h + 1);
-      return tryTakeFrame(buf);
     }
-    if (h + frameLen > buf.length) return null; // 等待更多数据
-    final frame = List.of(buf.sublist(h, h + frameLen));
-    buf.removeRange(0, h + frameLen);
-    return frame;
   }
 
   static int _u16(List<int> d, int i) =>
@@ -208,15 +221,11 @@ class JkDeviceInfo {
 class JkParser {
   /// 解析实时数据帧（type=0x02）。
   ///
-  /// 实测（真机固件 20.28，16 串）cell 帧布局（区别于 syssi 24S/32S 标准）：
-  ///   6..36  单体电压 1..16（2B，0.001V），17..24 为 0
-  ///   76     单体平均（2B，0.001V）
-  ///   78     最大压差（2B，0.001V）
-  ///   80     最高单体序号，81 最低单体序号
-  ///   82..110 均衡线电阻 1..16（2B，0.001Ω）
-  ///   150    总电压（4B，0.001V）
-  ///   174    剩余容量（4B，0.001Ah），178 标称容量（4B，0.001Ah）
-  ///   214/240/254 温度（2B，0.1℃）
+  /// 两种固件布局（关键字段一致，中间字段偏移不同）：
+  /// 旧固件（如 20.28，16 串）：平均@76、压差@78、序号@80/81、电阻@82..110
+  /// 新固件（如 19.09，JK02_24S）：平均@74、压差@76、序号@78/79、电阻@80..110
+  /// 共同：单体@6（2B×16+，0.001V）、总压@150（u32）、电流@158（i32 放电负）、
+  ///       剩余@174（u32 0.001Ah）、标称@178（u32 0.001Ah）、温度@214/240/254（2B 0.1℃）
   static JkCellInfo parseCell(List<int> f) {
     final u16 = JkProtocol._u16;
     final u32 = JkProtocol._u32;
@@ -229,10 +238,18 @@ class JkParser {
     if (t1 > 0 && t1 < 65500) temps.add(t1 / 10.0);
     if (t2 > 0 && t2 < 65500) temps.add(t2 / 10.0);
     if (tm > 0 && tm < 65500) temps.add(tm / 10.0);
-    // 均衡线电阻 2B×16 @82..110（0.001Ω）
+    // 布局自适应：@74 平均电压合理(2.0~5.0V) → 新固件；否则旧固件
+    final avgAt = 74;
+    final avgV = u16(f, avgAt) / 1000.0;
+    final isNew = avgV >= 2.0 && avgV <= 5.0;
+    final oAvg = isNew ? 74 : 76;
+    final oDelta = isNew ? 76 : 78;
+    final oIdx = isNew ? 78 : 80;
+    final oRes = isNew ? 80 : 82;
+    // 均衡线电阻 2B×16（0.001Ω）
     final res = <double>[];
     for (var i = 0; i < 16; i++) {
-      res.add(u16(f, 82 + i * 2) / 1000.0);
+      res.add(u16(f, oRes + i * 2) / 1000.0);
     }
     final nominal = u32(f, 178) / 1000.0;
     final remaining = u32(f, 174) / 1000.0;
@@ -246,10 +263,10 @@ class JkParser {
       cycles: 0,
       cellVoltages: cells,
       cellResistances: res,
-      avgCellV: u16(f, 76) / 1000.0,
-      deltaV: u16(f, 78) / 1000.0,
-      maxCellIdx: f.length > 80 ? f[80] : 0,
-      minCellIdx: f.length > 81 ? f[81] : 0,
+      avgCellV: u16(f, oAvg) / 1000.0,
+      deltaV: u16(f, oDelta) / 1000.0,
+      maxCellIdx: f.length > oIdx ? f[oIdx] : 0,
+      minCellIdx: f.length > oIdx + 1 ? f[oIdx + 1] : 0,
       temperatures: temps,
       balanceCurrent: 0.0,
       chargeMos: f.length > 166 && (f[166] & 0xFF) != 0,
@@ -260,18 +277,27 @@ class JkParser {
 
   /// 解析设备信息帧（type=0x03）。
   ///
-  /// 实测布局：型号@6、硬件@22、固件@30、设备号@86、串口密码@62、
-  /// 蓝牙密码@118（6 位 ASCII）、生产日期@78。
+  /// 两种固件的密码位置不同：
+  ///   新固件（如 19.09，JK_PB2A16S20P）：蓝牙密码 @62（6 位数字 ASCII）
+  ///   旧固件（如 20.28，JK-BD6A20S10PD）：蓝牙密码 @118
+  /// 布局：型号@6、硬件@22、固件@30、设备名@46、生产日期@78、设备号@86
   static JkDeviceInfo parseDevice(List<int> f) {
+    String pwd = '';
+    // 优先 @62（新固件），取到纯数字才采用；否则回退 @118（旧固件）
+    final s62 = f.length > 62 ? JkProtocol._ascii(f, 62, 6) : '';
+    final s118 = f.length > 118 ? JkProtocol._ascii(f, 118, 6) : '';
+    if (s62.isNotEmpty && RegExp(r'^[0-9]{4,6}$').hasMatch(s62)) {
+      pwd = s62;
+    } else if (s118.isNotEmpty && RegExp(r'^[0-9]{4,6}$').hasMatch(s118)) {
+      pwd = s118;
+    }
     return JkDeviceInfo(
       model: JkProtocol._ascii(f, 6, 16),
       hwRev: JkProtocol._ascii(f, 22, 8),
       swRev: JkProtocol._ascii(f, 30, 8),
       uptime: JkProtocol._u32(f, 38),
       mfgDate: JkProtocol._ascii(f, 78, 8),
-      bluetoothPassword: f.length > 118
-          ? JkProtocol._ascii(f, 118, 6)
-          : '',
+      bluetoothPassword: pwd,
     );
   }
 }
