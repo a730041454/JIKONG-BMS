@@ -20,18 +20,17 @@ class HomeScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 12, 14, 24),
       children: [
-        // 充电 / 放电 / 均衡 开关按键
+        // 放电开关（充电/均衡开关已移到参数设置页）
         Row(children: [
-          _Switch(k: 'sw_charge', on: app.charging, onTap: app.toggleCharge),
-          const SizedBox(width: 8),
           _Switch(k: 'sw_discharge', on: app.discharging, onTap: app.toggleDischarge),
-          const SizedBox(width: 8),
-          _Switch(k: 'sw_balance', on: app.balancing, onTap: app.toggleBalance),
         ]),
         const SizedBox(height: 6),
         Center(child: SocGauge(
             soc: app.soc, totalVoltage: app.totalVoltage, current: app.current)),
         const SizedBox(height: 8),
+        // 能量轴（0-100% 能量刻度条）
+        _EnergyAxis(soc: app.soc),
+        const SizedBox(height: 10),
         // 状态徽标
         Center(
           child: Container(
@@ -88,7 +87,7 @@ class HomeScreen extends StatelessWidget {
         _MetricRow([
           _m(t('m_cap'), app.nominal.toStringAsFixed(1), text, dim),
           _m(t('m_rem'), app.remaining.toStringAsFixed(1), text, dim),
-          _m(t('m_temp'), '${app.maxTemp.toStringAsFixed(1)}', text, dim),
+          _m(t('m_rem_time'), app.remainingHours.toStringAsFixed(1), text, dim),
           _m(t('m_type'), t('li_iron'), text, dim),
         ]),
         const SizedBox(height: 12),
@@ -115,10 +114,6 @@ class HomeScreen extends StatelessWidget {
                     color: _stateColor(app))),
           ]),
         ),
-        if (app.connected && !app.useMock) ...[
-          const SizedBox(height: 8),
-          _DiagCard(app: app),
-        ],
       ],
     );
   }
@@ -129,8 +124,51 @@ class HomeScreen extends StatelessWidget {
 
 Color _stateColor(AppState app) {
   if (app.alarm) return AppTheme.red;
-  if (app.charging || app.discharging) return AppTheme.green;
+  final c = app.current;
+  if (c >= 1.0) return AppTheme.green; // 充电中
+  if (c <= -1.0) return AppTheme.cyan; // 放电中（同网页预览青色）
   return AppTheme.darkDim;
+}
+
+/// 能量轴：0-100% 能量刻度条（对应网页预览能量环下方能量轴）。
+class _EnergyAxis extends StatelessWidget {
+  final double soc;
+  const _EnergyAxis({required this.soc});
+
+  @override
+  Widget build(BuildContext context) {
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final surface = Theme.of(context).colorScheme.surface;
+    final pct = soc.clamp(0.0, 100.0) / 100.0;
+    return Column(children: [
+      Stack(children: [
+        Container(
+          height: 10,
+          decoration: BoxDecoration(
+              color: surface, borderRadius: BorderRadius.circular(5)),
+        ),
+        FractionallySizedBox(
+          widthFactor: pct,
+          child: Container(
+            height: 10,
+            decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(5),
+                gradient: LinearGradient(colors: [
+                  AppTheme.green.withOpacity(.55),
+                  AppTheme.green,
+                  AppTheme.cyan,
+                ])),
+          ),
+        ),
+      ]),
+      const SizedBox(height: 4),
+      Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+        Text('0', style: TextStyle(fontSize: 10, color: dim)),
+        Text('50', style: TextStyle(fontSize: 10, color: dim)),
+        Text('100%', style: TextStyle(fontSize: 10, color: dim)),
+      ]),
+    ]);
+  }
 }
 
 class _Switch extends StatelessWidget {
@@ -263,58 +301,4 @@ class _Box extends StatelessWidget {
   }
 }
 
-/// 连接诊断卡片：显示板子实际暴露的服务/特征与收到的数据帧情况，
-/// 用于定位"能连上但没有数据"的协议/特征匹配问题。
-class _DiagCard extends StatelessWidget {
-  final AppState app;
-  const _DiagCard({required this.app});
-
-  @override
-  Widget build(BuildContext context) {
-    final d = app.diag;
-    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
-    final surface = Theme.of(context).colorScheme.surface;
-    final hex = d.lastFrameHex.isEmpty ? '—' : d.lastFrameHex;
-    final svc = d.services.isEmpty ? '—' : d.services.join(', ');
-    return Container(
-      padding: const EdgeInsets.all(13),
-      decoration: BoxDecoration(
-          color: surface, borderRadius: BorderRadius.circular(10)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('连接诊断',
-              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
-          const SizedBox(height: 6),
-          _row('服务', svc, dim),
-          _row('Notify特征', d.notifyUuid.isEmpty ? '—' : d.notifyUuid, dim),
-          _row('Write特征', d.writeUuid.isEmpty ? '—' : d.writeUuid, dim),
-          _row('收帧', '${d.rxBytes}字节 / ${d.rxFrames}帧 / 解析成功${d.parseOk} / 失败${d.parseFail}', dim),
-          _row('最近帧', hex, dim),
-          _row('已发', d.sentHex.isEmpty ? '—' : d.sentHex, dim),
-          _row('原始接收', d.rxLog.isEmpty ? '—' : d.rxLog, dim),
-          if (app.connectError != null) _row('错误', app.connectError!, dim),
-        ],
-      ),
-    );
-  }
-
-  Widget _row(String k, String v, Color dim) => Padding(
-        padding: const EdgeInsets.only(top: 4),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            SizedBox(
-                width: 64,
-                child: Text(k,
-                    style: TextStyle(fontSize: 11, color: dim))),
-            Expanded(
-                child: Text(v,
-                    style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF12D18F),
-                        fontFamily: 'monospace'))),
-          ],
-        ),
-      );
-}
+/// 连接诊断卡片已删除（v1.0.15 起不再展示）。

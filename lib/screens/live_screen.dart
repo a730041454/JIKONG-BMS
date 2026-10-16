@@ -5,9 +5,15 @@ import '../i18n/strings.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 
-/// 实时状态：实时数据键值 + 单体电压（最高蓝/最低红）+ 均衡线电阻。
-class LiveScreen extends StatelessWidget {
+/// 实时状态：实时数据键值 + 单体电压（最高蓝/最低红）+ 均衡线电阻 + 图表模式。
+class LiveScreen extends StatefulWidget {
   const LiveScreen({super.key});
+  @override
+  State<LiveScreen> createState() => _LiveScreenState();
+}
+
+class _LiveScreenState extends State<LiveScreen> {
+  bool _chart = false; // 图表模式
 
   @override
   Widget build(BuildContext context) {
@@ -22,41 +28,52 @@ class LiveScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       children: [
-        // 关键指标：电压 / 电流 / 功率
+        // 模式切换：数据 / 图表
         Row(children: [
-          _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
+          _ModeBtn(t('mode_list'), !_chart, () => setState(() => _chart = false)),
           const SizedBox(width: 8),
-          _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', green: false),
-          const SizedBox(width: 8),
-          _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', green: false),
+          _ModeBtn(t('mode_chart'), _chart, () => setState(() => _chart = true)),
         ]),
         const SizedBox(height: 10),
-        // 容量 / 剩余 / SOC / 温度
-        _MetricRow([
-          _m(t('rd_cap'), d == null ? dash : '${fmt(app.nominal, 1)}Ah', dim),
-          _m(t('rd_rem'), d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', dim),
-          _m(t('rd_soc'), d == null ? dash : '${fmt(d.soc, 1)}%', dim),
-          _m(t('rd_ptemp'), d == null ? dash : '${fmt(d.maxTemp, 1)}℃', dim),
-        ]),
-        _SecTitle(t('sec_cell'), dim),
-        _CellGrid(app: app),
-        // 温度
-        if (d != null && d.temperatures.isNotEmpty) ...[
-          _SecTitle(t('temp_title'), dim),
-          _TempRow(temps: d.temperatures, dim: dim),
+        if (_chart) ...[
+          _ChartCard(app: app),
+        ] else ...[
+          // 关键指标：电压 / 电流 / 功率
+          Row(children: [
+            _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
+            const SizedBox(width: 8),
+            _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', green: false),
+            const SizedBox(width: 8),
+            _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', green: false),
+          ]),
+          const SizedBox(height: 10),
+          // 容量 / 剩余 / SOC / 温度
+          _MetricRow([
+            _m(t('rd_cap'), d == null ? dash : '${fmt(app.nominal, 1)}Ah', dim),
+            _m(t('rd_rem'), d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', dim),
+            _m(t('rd_soc'), d == null ? dash : '${fmt(d.soc, 1)}%', dim),
+            _m(t('rd_ptemp'), d == null ? dash : '${fmt(d.maxTemp, 1)}℃', dim),
+          ]),
+          _SecTitle(t('sec_cell'), dim),
+          _CellGrid(app: app),
+          // 温度
+          if (d != null && d.temperatures.isNotEmpty) ...[
+            _SecTitle(t('temp_title'), dim),
+            _TempRow(temps: d.temperatures, dim: dim),
+          ],
+          // 均衡线电阻
+          _SecTitle(t('sec_res'), dim),
+          _ResGrid(app: app),
+          _SecTitle(t('rd_title'), dim),
+          _Grid(rows: [
+            ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
+            ('${t('rd_cycles')} ·', '0${t('u_times')}', false),
+            ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
+            ('${t('rd_type')} ·', t('li_iron'), false),
+            ('${t('rd_buz')} ·', t('off'), false),
+            ('${t('rd_cells')} ·', '${app.cells}${t('u_series')}', false),
+          ]),
         ],
-        // 均衡线电阻
-        _SecTitle(t('sec_res'), dim),
-        _ResGrid(app: app),
-        _SecTitle(t('rd_title'), dim),
-        _Grid(rows: [
-          ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
-          ('${t('rd_cycles')} ·', '0${t('u_times')}', false),
-          ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
-          ('${t('rd_type')} ·', t('li_iron'), false),
-          ('${t('rd_buz')} ·', t('off'), false),
-          ('${t('rd_cells')} ·', '${app.cells}${t('u_series')}', false),
-        ]),
       ],
     );
   }
@@ -229,6 +246,9 @@ class _CellGrid extends StatelessWidget {
         .where((v) => v > 0.1)
         .toList();
     final maxV = app.maxCellV, minV = app.minCellV;
+    // 只标记最高/最低的其中一个单体（最高蓝、最低红）
+    final maxIdx = vs.indexWhere((x) => x == maxV);
+    final minIdx = vs.indexWhere((x) => x == minV);
     final surface = Theme.of(context).colorScheme.surface;
     final surface2 = surface2Of(context);
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
@@ -245,8 +265,8 @@ class _CellGrid extends StatelessWidget {
         children: List.generate(vs.length, (i) {
           final v = vs[i];
           Color c = AppTheme.green;
-          if (v == maxV) c = AppTheme.blue;
-          else if (v == minV) c = AppTheme.red;
+          if (i == maxIdx) c = AppTheme.blue;
+          else if (i == minIdx) c = AppTheme.red;
           return Container(
             color: surface,
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -304,4 +324,139 @@ class _ResGrid extends StatelessWidget {
       ),
     );
   }
+}
+
+/// 模式切换按钮（数据 / 图表）。
+class _ModeBtn extends StatelessWidget {
+  final String label;
+  final bool on;
+  final VoidCallback onTap;
+  const _ModeBtn({required this.label, required this.on, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    return Expanded(
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          decoration: BoxDecoration(
+            color: surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+                color: on
+                    ? AppTheme.green.withOpacity(.6)
+                    : Theme.of(context).colorScheme.onSurface.withOpacity(.12)),
+          ),
+          child: Text(label,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: on ? AppTheme.green : dim)),
+        ),
+      ),
+    );
+  }
+}
+
+/// 图表模式：SOC / 总电压 / 电流 历史曲线。
+class _ChartCard extends StatelessWidget {
+  final AppState app;
+  const _ChartCard({required this.app});
+
+  @override
+  Widget build(BuildContext context) {
+    final surface = Theme.of(context).colorScheme.surface;
+    final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final en = app.isEn;
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+          color: surface, borderRadius: BorderRadius.circular(12)),
+      child: Column(children: [
+        Text(L.tr(en, 'chart_title'),
+            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 10),
+        SizedBox(
+          height: 190,
+          width: double.infinity,
+          child: CustomPaint(
+            painter: _ChartPainter(
+              app.histSoc,
+              app.histVoltage,
+              app.histCurrent,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          _legend(AppTheme.green, L.tr(en, 'rd_soc'), dim),
+          const SizedBox(width: 14),
+          _legend(AppTheme.blue, L.tr(en, 'lf_volt'), dim),
+          const SizedBox(width: 14),
+          _legend(AppTheme.cyan, L.tr(en, 'lf_cur'), dim),
+        ]),
+      ]),
+    );
+  }
+
+  Widget _legend(Color c, String label, Color dim) => Row(children: [
+        Container(width: 10, height: 3, color: c),
+        const SizedBox(width: 4),
+        Text(label, style: TextStyle(fontSize: 11, color: dim)),
+      ]);
+}
+
+/// 历史曲线绘图器（三条线各自归一化绘制）。
+class _ChartPainter extends CustomPainter {
+  final List<double> soc;
+  final List<double> voltage;
+  final List<double> current;
+  _ChartPainter(this.soc, this.voltage, this.current);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    // 网格
+    final grid = Paint()
+      ..color = const Color(0x22FFFFFF)
+      ..strokeWidth = 1;
+    for (var i = 0; i <= 4; i++) {
+      final y = h * i / 4;
+      canvas.drawLine(Offset(0, y), Offset(w, y), grid);
+    }
+    void drawLine(List<double> data, Color color) {
+      if (data.length < 2) return;
+      var minV = data.reduce((a, b) => a < b ? a : b);
+      var maxV = data.reduce((a, b) => a > b ? a : b);
+      if (maxV - minV < 1e-9) maxV = minV + 1e-9;
+      final p = Paint()
+        ..color = color
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeJoin = StrokeJoin.round;
+      final path = Path();
+      for (var i = 0; i < data.length; i++) {
+        final x = w * i / (data.length - 1);
+        final y = h - h * (data[i] - minV) / (maxV - minV);
+        if (i == 0) {
+          path.moveTo(x, y);
+        } else {
+          path.lineTo(x, y);
+        }
+      }
+      canvas.drawPath(path, p);
+    }
+
+    drawLine(soc, AppTheme.green);
+    drawLine(voltage, AppTheme.blue);
+    drawLine(current, AppTheme.cyan);
+  }
+
+  @override
+  bool shouldRepaint(covariant _ChartPainter old) => true;
 }

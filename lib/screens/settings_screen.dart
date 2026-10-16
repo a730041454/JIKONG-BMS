@@ -35,6 +35,36 @@ class _SettingsScreenState extends State<SettingsScreen> {
     super.dispose();
   }
 
+  /// 授权设置：密码认证通过后开启（响应真实密码验证）。
+  Future<void> _authGate(BuildContext context, void Function(String) toast) async {
+    final app = context.read<AppState>();
+    final isEn = app.isEn;
+    final input = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(L.tr(isEn, 'pwd_title')),
+        content: TextField(
+          controller: input,
+          obscureText: true,
+          autofocus: true,
+          decoration: InputDecoration(hintText: L.tr(isEn, 'pwd_required')),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(L.tr(isEn, 'pwd_cancel'))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(L.tr(isEn, 'pwd_ok'))),
+        ],
+      ),
+    );
+    if (ok == true) {
+      toast(input.text == app.password ? L.tr(isEn, 'toast_auth_ok') : L.tr(isEn, 'pwd_err'));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
@@ -49,7 +79,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       children: [
         _Section(t('qf_title'), dim),
         Row(children: [
-          _QBtn(t('qf_auth'), () => toast(t('toast_demo'))),
+          _QBtn(t('qf_auth'), () => _authGate(context, toast)),
           const SizedBox(width: 8),
           _QBtn(t('qf_tern'), () => toast(t('toast_demo'))),
         ]),
@@ -66,12 +96,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _QBtn(t('dc_exp'), () => toast(t('toast_demo'))),
         ]),
         _Section(t('ct_title'), dim),
-        _SwitchRow(t('ct_chg'), true, null),
-        _SwitchRow(t('ct_dis'), true, null),
-        _SwitchRow(t('ct_emer'), false, null),
-        _SwitchRow(t('ct_gpsc'), false, null),
-        _SwitchRow(t('ct_gpsd'), false, null),
-        _SwitchRow(t('ct_scr'), true, null),
+        // 充电/放电/均衡开关：状态以保护板数据为准，切换有效
+        _SwitchRow(t('ct_chg'), app.charging, app.toggleCharge),
+        _SwitchRow(t('ct_dis'), app.discharging, app.toggleDischarge),
+        _SwitchRow(t('ct_emer'), false, () => toast(t('toast_demo'))),
+        _SwitchRow(t('ct_gpsc'), false, () => toast(t('toast_demo'))),
+        _SwitchRow(t('ct_gpsd'), false, () => toast(t('toast_demo'))),
+        _SwitchRow(t('ct_scr'), true, () => toast(t('toast_demo'))),
         _Section(t('core_title'), dim),
         _ParamRow(
             label: t('core_cells'),
@@ -110,10 +141,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ParamRow(label: t('cp_dc'), initial: '100.0', demo: true),
         _ParamRow(label: t('cp_dd'), initial: '300', demo: true),
         _ParamRow(label: t('cp_ddr'), initial: '60', demo: true),
-        _SwitchRow(t('cp_d2'), true, null),
-        _SwitchRow(t('cp_d3'), true, null),
+        _SwitchRow(t('cp_d2'), true, () => toast(t('toast_demo'))),
+        _SwitchRow(t('cp_d3'), true, () => toast(t('toast_demo'))),
         _Section(t('tp_title'), dim),
-        _SwitchRow(t('tp_nobat'), false, null),
+        _SwitchRow(t('tp_nobat'), false, () => toast(t('toast_demo'))),
         _ParamRow(label: t('tp_cot'), initial: '70.0', demo: true),
         _ParamRow(label: t('tp_cotr'), initial: '60.0', demo: true),
         _ParamRow(label: t('tp_clt'), initial: '0.0', demo: true),
@@ -128,13 +159,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         _ParamRow(label: t('sc_d'), initial: '5', demo: true),
         _ParamRow(label: t('sc_r'), initial: '5', demo: true),
         _Section(t('ae_title'), dim),
-        _SwitchRow(t('ae_break'), false, null),
+        _SwitchRow(t('ae_break'), false, () => toast(t('toast_demo'))),
         _ParamRow(label: t('ae_src'), initial: '09-MOS管超温', demo: true),
         _ParamRow(label: t('ae_trig'), initial: '100', demo: true),
         _ParamRow(label: t('ae_rec'), initial: '95', demo: true),
         _ParamRow(label: t('ae_time'), initial: '30', demo: true),
         _Section(t('ss_title'), dim),
-        _SwitchRow(t('ss_sw'), false, null),
+        _SwitchRow(t('ss_sw'), false, () => toast(t('toast_demo'))),
         _ParamRow(label: t('ss_v'), initial: '3.500', demo: true),
         const SizedBox(height: 10),
         Padding(

@@ -60,13 +60,27 @@ class AppState extends ChangeNotifier {
   double get maxTemp => data?.maxTemp ?? 0;
   double get remaining => data?.remainingCapacity ?? 0;
 
-  /// 状态文本 key。
+  /// 状态文本 key（按当前电流判断：≥+1A 充电中，≤-1A 放电中，其余空闲）。
   String get stateKey {
     if (alarm) return 'st_alarm';
-    if (charging) return 'st_charging';
-    if (discharging) return 'st_discharging';
+    final c = data?.current ?? 0;
+    if (c >= 1.0) return 'st_charging';
+    if (c <= -1.0) return 'st_discharging';
     return 'st_idle';
   }
+
+  /// 放电剩余时间（小时）= 剩余容量 / |电流|（充电中返回充满预计时间）。
+  double get remainingHours {
+    final c = data?.current ?? 0;
+    final r = data?.remainingCapacity ?? 0;
+    if (c.abs() < 0.1 || r <= 0) return 0;
+    return r / c.abs();
+  }
+
+  // 历史数据（图表模式用，最多 60 点）
+  final List<double> histSoc = [];
+  final List<double> histVoltage = [];
+  final List<double> histCurrent = [];
 
   Future<void> _init() async {
     final prefs = await SharedPreferences.getInstance();
@@ -91,16 +105,25 @@ class AppState extends ChangeNotifier {
     }
     _sub = service.dataStream.listen((d) {
       data = d;
-      // 首页充电/放电/均衡开关状态以保护板数据为准（真实 BLE 模式）。
+      // 首页充电/放电开关状态：以保护板 MOS 为准，同时按电流判断（放电为负、充电为正），
+      // 保证开关随实际负载状态更新。
       if (!useMock) {
-        charging = d.chargeMos;
-        discharging = d.dischargeMos;
+        discharging = d.dischargeMos || d.current <= -1.0;
+        charging = d.chargeMos || d.current >= 1.0;
         balancing = d.balancing;
         // 串数 / 容量以保护板数据为准
         if (d.nominalCapacity > 0) nominal = d.nominalCapacity;
         final n = d.cellVoltages.where((v) => v > 0.1).length;
         if (n > 0) cells = n;
       }
+      // 记录历史（图表模式）
+      final hist = (v, List<double> list) {
+        list.add(v);
+        if (list.length > 60) list.removeAt(0);
+      };
+      hist(d.soc, histSoc);
+      hist(d.totalVoltage, histVoltage);
+      hist(d.current, histCurrent);
       notifyListeners();
     });
     // 记住设备则自动重连

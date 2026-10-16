@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../i18n/strings.dart';
@@ -27,6 +30,33 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
     }).catchError((_) {
       if (mounted) setState(() => _version = '');
     });
+  }
+
+  /// 导出 BLE 诊断日志到应用文档目录。
+  Future<void> _exportLog(BuildContext context) async {
+    final app = context.read<AppState>();
+    final en = app.isEn;
+    void toast(String m) => ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(m)));
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final f = File('${dir.path}/jk_bms_log.txt');
+      final d = app.diag;
+      final content = [
+        'JikongBMS log @ ${DateTime.now()}',
+        'services: ${d.services.join(', ')}',
+        'notify: ${d.notifyUuid}  write: ${d.writeUuid}',
+        'rx: ${d.rxBytes}B / ${d.rxFrames}F / ok ${d.parseOk} / fail ${d.parseFail}',
+        'sent: ${d.sentHex}',
+        'lastFrame: ${d.lastFrameHex}',
+        'raw: ${d.rxLog}',
+        'data: ${app.data?.totalVoltage ?? 0}V ${app.data?.current ?? 0}A soc ${app.data?.soc ?? 0}',
+      ].join('\n');
+      await f.writeAsString(content);
+      toast(L.tr(en, 'toast_exported') + ' · ${f.path}');
+    } catch (e) {
+      toast('export error: $e');
+    }
   }
 
   @override
@@ -69,6 +99,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
             Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AboutScreen()));
           }),
+          _Sec(t('app_sys'), dim),
+          _RowBtn(label: t('app_log_export'), onTap: () => _exportLog(context)),
           const SizedBox(height: 16),
           // 连接状态与数据源
           Container(
