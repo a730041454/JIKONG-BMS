@@ -163,14 +163,15 @@ class AppState extends ChangeNotifier {
   }
 
   // ---- 首页开关 ----
-  /// 状态刷新只来自保护板数据：真实模式下点击开关不下发写指令，
-  /// 而是请求一次数据（settings 帧），开关随保护板返回的状态刷新。
+  /// 状态刷新以保护板返回为准：真实模式下点击开关先下发 MOS 写指令（0x1D/0x1E/0x1F），
+  /// 稍后请求 settings 帧，开关随保护板返回的状态刷新。
   void toggleCharge() {
     if (useMock) {
       charging = !charging;
       (service as MockBmsService).setCharge(charging);
-    } else {
-      requestPage(1); // 重新拉取 settings 帧，充电 MOS 状态以返回数据为准
+    } else if (service is _ble.BleBmsService) {
+      final s = service as _ble.BleBmsService;
+      unawaited(s.setMos(charge: !charging).then((_) => requestPage(1)));
     }
     notifyListeners();
   }
@@ -179,8 +180,9 @@ class AppState extends ChangeNotifier {
     if (useMock) {
       discharging = !discharging;
       (service as MockBmsService).setDischarge(discharging);
-    } else {
-      requestPage(1); // 重新拉取 settings 帧，放电 MOS 状态以返回数据为准
+    } else if (service is _ble.BleBmsService) {
+      final s = service as _ble.BleBmsService;
+      unawaited(s.setMos(discharge: !discharging).then((_) => requestPage(1)));
     }
     notifyListeners();
   }
@@ -189,8 +191,9 @@ class AppState extends ChangeNotifier {
     if (useMock) {
       balancing = !balancing;
       (service as MockBmsService).setBalance(balancing);
-    } else {
-      requestPage(1); // 重新拉取 settings 帧，均衡状态以返回数据为准
+    } else if (service is _ble.BleBmsService) {
+      final s = service as _ble.BleBmsService;
+      unawaited(s.setMos(balance: !balancing).then((_) => requestPage(1)));
     }
     notifyListeners();
   }
@@ -233,12 +236,17 @@ class AppState extends ChangeNotifier {
       final m = service as MockBmsService;
       m.cells = cells;
       m.nominal = nominal;
+    } else if (service is _ble.BleBmsService) {
+      // 真实模式：串数/容量写入保护板 settings 寄存器（偏移 114/130），
+      // 写完请求 settings 帧，以保护板返回的数据为准刷新。
+      final s = service as _ble.BleBmsService;
+      if (cellCount != null) await s.writeCellCount(cells);
+      if (capacity != null) await s.writeCapacity(nominal);
+      requestPage(1);
     }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt('jk_cells', cells);
     await prefs.setDouble('jk_cap', nominal);
-    // 真实模式：保存后下发指令（请求 settings 帧）再获取数据刷新
-    if (!useMock) requestPage(1);
     notifyListeners();
   }
 

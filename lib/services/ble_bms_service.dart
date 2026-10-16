@@ -323,7 +323,52 @@ class BleBmsService extends BmsDataService {
   @override
   Future<bool> writeRegister(int reg, int value) async {
     try {
-      await _write(JkProtocol.buildReadCell());
+      await _write(JkProtocol.buildWriteRegister(reg, JkProtocol.u32le(value)));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 下发 MOS 开关写指令（充电 0x1D / 放电 0x1E / 均衡 0x1F）。
+  Future<bool> setMos({
+    bool? charge,
+    bool? discharge,
+    bool? balance,
+  }) async {
+    try {
+      if (charge != null) {
+        await _write(JkProtocol.buildChargeMos(charge));
+        await Future.delayed(const Duration(milliseconds: 60));
+      }
+      if (discharge != null) {
+        await _write(JkProtocol.buildDischargeMos(discharge));
+        await Future.delayed(const Duration(milliseconds: 60));
+      }
+      if (balance != null) {
+        await _write(JkProtocol.buildBalanceMos(balance));
+        await Future.delayed(const Duration(milliseconds: 60));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 写串数（settings 偏移 114）。
+  Future<bool> writeCellCount(int cells) async {
+    try {
+      await _write(JkProtocol.buildWriteCellCount(cells));
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// 写标称容量（settings 偏移 130，Ah → mAh）。
+  Future<bool> writeCapacity(double ah) async {
+    try {
+      await _write(JkProtocol.buildWriteCapacity(ah));
       return true;
     } catch (_) {
       return false;

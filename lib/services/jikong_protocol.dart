@@ -54,6 +54,57 @@ class JkProtocol {
   /// 读设置参数命令。
   static List<int> buildReadSettings() => _buildRead(addrSettings);
 
+  /// 构造 JK02 写寄存器命令帧（20 字节）。
+  ///
+  /// 格式：AA 55 90 EB <寄存器> <数据长度> <数据前4B> <0x00*9> <CRC1B>
+  /// 极空 BLE 版写寄存器与读命令共用帧格式，长度>0 即写。
+  static List<int> buildWriteRegister(int reg, List<int> data) {
+    final f = List<int>.filled(20, 0);
+    f[0] = 0xAA;
+    f[1] = 0x55;
+    f[2] = 0x90;
+    f[3] = 0xEB;
+    f[4] = reg & 0xFF;
+    f[5] = data.length > 4 ? 4 : data.length; // 数据长度（最多 4B）
+    for (var i = 0; i < data.length && i < 4; i++) {
+      f[6 + i] = data[i] & 0xFF;
+    }
+    var crc = 0;
+    for (var i = 0; i < 19; i++) {
+      crc = (crc + f[i]) & 0xFF;
+    }
+    f[19] = crc;
+    return f;
+  }
+
+  /// u32 小端 4 字节。
+  static List<int> u32le(int v) => [
+        v & 0xFF,
+        (v >> 8) & 0xFF,
+        (v >> 16) & 0xFF,
+        (v >> 24) & 0xFF,
+      ];
+
+  /// 充电 MOS 写寄存器（0x1D）：1 开 / 0 关。
+  static List<int> buildChargeMos(bool on) =>
+      buildWriteRegister(0x1D, [on ? 1 : 0, 0, 0, 0]);
+
+  /// 放电 MOS 写寄存器（0x1E）：1 开 / 0 关。
+  static List<int> buildDischargeMos(bool on) =>
+      buildWriteRegister(0x1E, [on ? 1 : 0, 0, 0, 0]);
+
+  /// 均衡开关写寄存器（0x1F）：1 开 / 0 关。
+  static List<int> buildBalanceMos(bool on) =>
+      buildWriteRegister(0x1F, [on ? 1 : 0, 0, 0, 0]);
+
+  /// 电池串数设置写入（settings 帧偏移 114，u32 LE）。
+  static List<int> buildWriteCellCount(int cells) =>
+      buildWriteRegister(0x72, u32le(cells));
+
+  /// 标称容量设置写入（settings 帧偏移 130，u32 LE，单位 mAh）。
+  static List<int> buildWriteCapacity(double ah) =>
+      buildWriteRegister(0x82, u32le((ah * 1000).round()));
+
   static bool _match(List<int> buf, int h, List<int> pat) {
     for (var i = 0; i < pat.length; i++) {
       if (h + i >= buf.length || buf[h + i] != pat[i]) return false;
