@@ -15,6 +15,8 @@ class LiveScreen extends StatelessWidget {
     final t = (k) => L.tr(app.isEn, k);
     final d = app.data;
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final surface = Theme.of(context).colorScheme.surface;
+    final borderDim = Theme.of(context).colorScheme.onSurface.withOpacity(.12);
 
     String fmt(double v, int n) => v.toStringAsFixed(n);
     String dash = '--';
@@ -29,9 +31,9 @@ class LiveScreen extends StatelessWidget {
             runSpacing: 6,
             alignment: WrapAlignment.center,
             children: [
-              _chip(t('st_charging'), app.charging, dim),
-              _chip(t('st_discharging'), app.discharging, dim),
-              _chip(t('st_balancing'), app.balancing, dim),
+              _chip(t('st_charging'), app.charging, dim, surface, borderDim),
+              _chip(t('st_discharging'), app.discharging, dim, surface, borderDim),
+              _chip(t('st_balancing'), app.balancing, dim, surface, borderDim),
             ],
           ),
         ),
@@ -76,13 +78,13 @@ class LiveScreen extends StatelessWidget {
     );
   }
 
-  Widget _chip(String label, bool on, Color dim) => Container(
+  Widget _chip(String label, bool on, Color dim, Color surface, Color borderDim) =>
+      Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
-          color: on ? AppTheme.green.withOpacity(.16) : Theme.of(context).colorScheme.surface,
+          color: on ? AppTheme.green.withOpacity(.16) : surface,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-              color: on ? AppTheme.green.withOpacity(.5) : Theme.of(context).colorScheme.onSurface.withOpacity(.12)),
+          border: Border.all(color: on ? AppTheme.green.withOpacity(.5) : borderDim),
         ),
         child: Text(label,
             style: TextStyle(
