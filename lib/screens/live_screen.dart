@@ -143,9 +143,9 @@ class _TempRow extends StatelessWidget {
   final List<double> temps;
   final Color dim;
   final List<String> labels;
-  const _TempRow({required this.temps, required this.dim, List<String>? labels})
-      : labels = labels ??
-            [for (var i = 0; i < temps.length; i++) 'T${i + 1}'];
+  _TempRow({required this.temps, required this.dim, List<String>? labels})
+      : labels =
+            labels ?? List.generate(temps.length, (i) => 'T${i + 1}');
 
   @override
   Widget build(BuildContext context) {
