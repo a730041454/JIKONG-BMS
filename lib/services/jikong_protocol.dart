@@ -104,6 +104,7 @@ class JkCellInfo {
   final double nominalAh;
   final int cycles;
   final List<double> cellVoltages; // V
+  final List<double> cellResistances; // Ω（均衡线电阻）
   final double avgCellV; // V
   final double deltaV; // V
   final int maxCellIdx; // 1 起
@@ -122,6 +123,7 @@ class JkCellInfo {
     required this.nominalAh,
     required this.cycles,
     required this.cellVoltages,
+    required this.cellResistances,
     required this.avgCellV,
     required this.deltaV,
     required this.maxCellIdx,
@@ -176,6 +178,11 @@ class JkParser {
     if (t1 > 0 && t1 < 65500) temps.add(t1 / 10.0);
     if (t2 > 0 && t2 < 65500) temps.add(t2 / 10.0);
     if (tm > 0 && tm < 65500) temps.add(tm / 10.0);
+    // 均衡线电阻 2B×16 @82..110（0.001Ω）
+    final res = <double>[];
+    for (var i = 0; i < 16; i++) {
+      res.add(u16(f, 82 + i * 2) / 1000.0);
+    }
     final nominal = u32(f, 178) / 1000.0;
     final remaining = u32(f, 174) / 1000.0;
     final soc = nominal > 0 ? (remaining / nominal * 100.0).clamp(0.0, 100.0) : 0.0;
@@ -187,6 +194,7 @@ class JkParser {
       nominalAh: nominal,
       cycles: 0,
       cellVoltages: cells,
+      cellResistances: res,
       avgCellV: u16(f, 76) / 1000.0,
       deltaV: u16(f, 78) / 1000.0,
       maxCellIdx: f.length > 80 ? f[80] : 0,

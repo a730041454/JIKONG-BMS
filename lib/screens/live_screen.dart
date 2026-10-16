@@ -15,8 +15,6 @@ class LiveScreen extends StatelessWidget {
     final t = (k) => L.tr(app.isEn, k);
     final d = app.data;
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
-    final surface = Theme.of(context).colorScheme.surface;
-    final borderDim = Theme.of(context).colorScheme.onSurface.withOpacity(.12);
 
     String fmt(double v, int n) => v.toStringAsFixed(n);
     String dash = '--';
@@ -24,20 +22,6 @@ class LiveScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       children: [
-        // 状态徽标（充/放/均衡，以保护板数据为准）
-        Center(
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 6,
-            alignment: WrapAlignment.center,
-            children: [
-              _chip(t('st_charging'), app.charging, dim, surface, borderDim),
-              _chip(t('st_discharging'), app.discharging, dim, surface, borderDim),
-              _chip(t('st_balancing'), app.balancing, dim, surface, borderDim),
-            ],
-          ),
-        ),
-        const SizedBox(height: 12),
         // 关键指标：电压 / 电流 / 功率
         Row(children: [
           _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', green: true),
@@ -71,27 +55,11 @@ class LiveScreen extends StatelessWidget {
           ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
           ('${t('rd_type')} ·', t('li_iron'), false),
           ('${t('rd_buz')} ·', t('off'), false),
-          ('${t('rd_bal')} ·', t(app.balancing ? 'on' : 'off'), true),
           ('${t('rd_cells')} ·', '${app.cells}${t('u_series')}', false),
         ]),
       ],
     );
   }
-
-  Widget _chip(String label, bool on, Color dim, Color surface, Color borderDim) =>
-      Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: on ? AppTheme.green.withOpacity(.16) : surface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: on ? AppTheme.green.withOpacity(.5) : borderDim),
-        ),
-        child: Text(label,
-            style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: on ? AppTheme.green : dim)),
-      );
 
   _Metric _m(String k, String v, Color dim) => _Metric(k, v, dim);
 }
@@ -256,7 +224,10 @@ class _CellGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = app.data;
-    final vs = d?.cellVoltages ?? const <double>[];
+    // 只显示已连接的单体电压（过滤未连接的 0 值）
+    final vs = (d?.cellVoltages ?? const <double>[])
+        .where((v) => v > 0.1)
+        .toList();
     final maxV = app.maxCellV, minV = app.minCellV;
     final surface = Theme.of(context).colorScheme.surface;
     final surface2 = surface2Of(context);
@@ -300,7 +271,10 @@ class _ResGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final d = app.data;
-    final res = d?.cellResistances ?? const <double>[];
+    // 只显示已连接单体的均衡线电阻（过滤未连接的 0 值）
+    final res = (d?.cellResistances ?? const <double>[])
+        .where((r) => r > 0.001)
+        .toList();
     final surface = Theme.of(context).colorScheme.surface;
     final surface2 = surface2Of(context);
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);

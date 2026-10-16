@@ -266,8 +266,10 @@ class BleBmsService extends BmsDataService {
     final c = _cell;
     if (c == null) return;
     final cells = c.cellVoltages;
-    final maxV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x > a ? x : a);
-    final minV = cells.isEmpty ? 0.0 : cells.reduce((a, x) => x < a ? x : a);
+    // 最高/最低只在已连接单体中计算（排除未连接的 0 值）
+    final active = cells.where((x) => x > 0.1).toList();
+    final maxV = active.isEmpty ? 0.0 : active.reduce((a, x) => x > a ? x : a);
+    final minV = active.isEmpty ? 0.0 : active.reduce((a, x) => x < a ? x : a);
     _controller.add(BmsData(
       totalVoltage: c.totalVoltage,
       current: c.current,
@@ -277,7 +279,7 @@ class BleBmsService extends BmsDataService {
       remainingCapacity: c.remainingAh,
       nominalCapacity: c.nominalAh,
       cellVoltages: cells,
-      cellResistances: List.filled(cells.length, 0.0),
+      cellResistances: c.cellResistances,
       temperatures: c.temperatures,
       maxCellV: maxV,
       minCellV: minV,
