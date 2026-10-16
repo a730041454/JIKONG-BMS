@@ -29,9 +29,9 @@ class LiveScreen extends StatelessWidget {
             runSpacing: 6,
             alignment: WrapAlignment.center,
             children: [
-              _chip(t('st_charging'), app.charging),
-              _chip(t('st_discharging'), app.discharging),
-              _chip(t('st_balancing'), app.balancing),
+              _chip(t('st_charging'), app.charging, dim),
+              _chip(t('st_discharging'), app.discharging, dim),
+              _chip(t('st_balancing'), app.balancing, dim),
             ],
           ),
         ),
@@ -76,7 +76,7 @@ class LiveScreen extends StatelessWidget {
     );
   }
 
-  Widget _chip(String label, bool on) => Container(
+  Widget _chip(String label, bool on, Color dim) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
         decoration: BoxDecoration(
           color: on ? AppTheme.green.withOpacity(.16) : Theme.of(context).colorScheme.surface,
