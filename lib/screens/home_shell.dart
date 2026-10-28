@@ -4,15 +4,17 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../i18n/strings.dart';
+import '../services/gateway/gateway_link.dart';
+import '../services/update_service.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
-import 'add_device_screen.dart';
 import 'app_settings_screen.dart';
+import 'gateway_screen.dart';
 import 'home_screen.dart';
 import 'live_screen.dart';
 import 'settings_screen.dart';
 
-/// 三页导航外壳（实时状态 / 首页 / 参数设置）+ 顶栏 + 状态栏。
+/// 三页导航外壳（BMS管理 / 首页 / 参数设置）+ 顶栏。
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
   @override
@@ -27,6 +29,14 @@ class _HomeShellState extends State<HomeShell> {
   void initState() {
     super.initState();
     _pageCtrl = PageController(initialPage: 1);
+    // 启动后静默检查一次新版本，有更新才弹窗
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Timer(const Duration(seconds: 2), () {
+        if (!mounted) return;
+        UpdateService.checkAndPrompt(context,
+            en: context.read<AppState>().isEn);
+      });
+    });
   }
 
   @override
@@ -50,15 +60,19 @@ class _HomeShellState extends State<HomeShell> {
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
     final tabs = [_t(context, 'nav_live'), _t(context, 'nav_home'), _t(context, 'nav_set')];
+    final title = app.connected && app.deviceName.isNotEmpty
+        ? app.deviceName
+        : tabs[_index];
     return Scaffold(
       body: SafeArea(
         bottom: false,
         child: Column(
           children: [
             _AppBar(
-              title: tabs[_index],
-              onAdd: () => Navigator.of(context).push(
-                  MaterialPageRoute(builder: (_) => const AddDeviceScreen())),
+              title: title,
+              mode: app.linkMode,
+              onAdd: () => Navigator.of(context)
+                  .push(MaterialPageRoute(builder: (_) => const GatewayScreen())),
               onSettings: () => Navigator.of(context).push(
                   MaterialPageRoute(builder: (_) => const AppSettingsScreen())),
               connected: app.connected,
@@ -68,8 +82,11 @@ class _HomeShellState extends State<HomeShell> {
                 controller: _pageCtrl,
                 onPageChanged: (i) {
                   setState(() => _index = i);
+                  final app = context.read<AppState>();
+                  // 离开参数设置页即重新上锁：下次进入必须再次授权
+                  if (i != 2) app.lock();
                   // 页面切换时向保护板请求当前页对应数据
-                  context.read<AppState>().requestPage(i);
+                  app.requestPage(i);
                 },
                 children: const [LiveScreen(), HomeScreen(), SettingsScreen()],
               ),
@@ -86,67 +103,15 @@ class _HomeShellState extends State<HomeShell> {
   }
 }
 
-class _StatusBar extends StatefulWidget {
-  final bool en;
-  const _StatusBar({required this.en});
-  @override
-  State<_StatusBar> createState() => _StatusBarState();
-}
-
-class _StatusBarState extends State<_StatusBar> {
-  String _clock = '--:--';
-
-  @override
-  void initState() {
-    super.initState();
-    _clock = _now();
-    Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() => _clock = _now());
-    });
-  }
-
-  String _now() {
-    final d = DateTime.now();
-    final p = (n) => n.toString().padLeft(2, '0');
-    return '${p(d.hour)}:${p(d.minute)}';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      height: 30,
-      padding: const EdgeInsets.symmetric(horizontal: 18),
-      color: Theme.of(context).scaffoldBackgroundColor,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-        children: [
-          Text(_clock, style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(.55))),
-          Row(children: [
-            Icon(Icons.signal_cellular_alt, size: 15, color: _dim(context)),
-            const SizedBox(width: 5),
-            Icon(Icons.wifi, size: 15, color: _dim(context)),
-            const SizedBox(width: 5),
-            Icon(Icons.battery_full, size: 16, color: _dim(context)),
-          ]),
-        ],
-      ),
-    );
-  }
-
-  Color _dim(BuildContext c) =>
-      Theme.of(c).colorScheme.onSurface.withOpacity(.45);
-}
-
 class _AppBar extends StatelessWidget {
   final String title;
+  final LinkMode mode;
   final VoidCallback onAdd;
   final VoidCallback onSettings;
   final bool connected;
   const _AppBar(
       {required this.title,
+      required this.mode,
       required this.onAdd,
       required this.onSettings,
       required this.connected});
@@ -154,19 +119,32 @@ class _AppBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
+    final scheme = Theme.of(context).colorScheme;
+    final icon = !connected
+        ? Icons.link_off
+        : switch (mode) {
+            LinkMode.ble => Icons.bluetooth_connected,
+            LinkMode.lan => Icons.wifi,
+            LinkMode.ap => Icons.wifi_tethering,
+          };
     return Container(
-      height: 48,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      color: Theme.of(context).scaffoldBackgroundColor,
+      height: 50,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: scheme.surface,
+        border: Border(
+            bottom: BorderSide(color: scheme.onSurface.withOpacity(.06))),
+      ),
       child: Stack(
         alignment: Alignment.center,
         children: [
           Align(
             alignment: Alignment.centerLeft,
             child: IconButton(
-              icon: Icon(Icons.add, size: 22, color: dim),
+              icon: Icon(icon,
+                  size: 22, color: connected ? AppTheme.green : dim),
               onPressed: onAdd,
-              tooltip: 'Add device',
+              tooltip: 'Gateway',
             ),
           ),
           Row(
@@ -174,10 +152,16 @@ class _AppBar extends StatelessWidget {
             children: [
               Icon(Icons.bolt, size: 17, color: AppTheme.green),
               const SizedBox(width: 5),
-              Text(title, style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Theme.of(context).colorScheme.onSurface)),
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 180),
+                child: Text(title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w600,
+                        color: scheme.onSurface)),
+              ),
             ],
           ),
           Align(
@@ -218,8 +202,12 @@ class _Nav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final icons = [Icons.bolt_outlined, Icons.home_outlined, Icons.tune];
-    final iconsOn = [Icons.bolt, Icons.home, Icons.tune];
+    final icons = [
+      Icons.battery_charging_full_outlined,
+      Icons.home_outlined,
+      Icons.tune
+    ];
+    final iconsOn = [Icons.battery_charging_full, Icons.home, Icons.tune];
     final scheme = Theme.of(context).colorScheme;
     return Container(
       decoration: BoxDecoration(
@@ -250,75 +238,6 @@ class _Nav extends StatelessWidget {
           );
         }),
       ),
-    );
-  }
-}
-
-/// 密码弹层（进入参数设置前验证）。
-class PasswordGate {
-  PasswordGate._();
-  static Future<void> show(BuildContext context) async {
-    final app = context.read<AppState>();
-    final ctrl = TextEditingController();
-    var err = '';
-    var showPwd = false;
-    await showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) {
-        final t = (k) => L.tr(app.isEn, k);
-        return StatefulBuilder(builder: (ctx, setS) {
-          return AlertDialog(
-            backgroundColor: Theme.of(ctx).colorScheme.surface,
-            title: Center(child: Text(t('pwd_title'))),
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.lock_outline, color: AppTheme.green, size: 34),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: ctrl,
-                  obscureText: !showPwd,
-                  autofocus: true,
-                  textAlign: TextAlign.center,
-                  decoration: InputDecoration(
-                      errorText: err.isEmpty ? null : t('pwd_err'),
-                      suffixIcon: IconButton(
-                        icon: Icon(showPwd ? Icons.visibility_off : Icons.visibility,
-                            size: 20),
-                        onPressed: () => setS(() => showPwd = !showPwd),
-                      )),
-                  onSubmitted: (_) {
-                    if (ctrl.text == app.password) {
-                      app.pwdUnlocked = true;
-                      Navigator.of(ctx).pop();
-                    } else {
-                      setS(() => err = 'x');
-                    }
-                  },
-                ),
-              ],
-            ),
-            actionsAlignment: MainAxisAlignment.spaceEvenly,
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(),
-                  child: Text(t('pwd_cancel'))),
-              FilledButton(
-                  style: FilledButton.styleFrom(backgroundColor: AppTheme.green),
-                  onPressed: () {
-                    if (ctrl.text == app.password) {
-                      app.pwdUnlocked = true;
-                      Navigator.of(ctx).pop();
-                    } else {
-                      setS(() => err = 'x');
-                    }
-                  },
-                  child: Text(t('pwd_ok'))),
-            ],
-          );
-        });
-      },
     );
   }
 }

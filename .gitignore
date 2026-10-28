@@ -23,3 +23,9 @@ _tools/
 # OS
 .DS_Store
 Thumbs.db
+
+# 交付产物（APK 走发布渠道，不入库）
+dist/
+
+# 本地旧版留档（*.txt 快照，不参与构建）
+_legacy/

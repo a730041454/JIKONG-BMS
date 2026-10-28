@@ -4,57 +4,55 @@ import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
 
-/// 能量环表盘：270° 弧，左下角为 0、右下角为满（顺时针），
-/// ≤50% 红→绿、>50% 绿→青，带表盘刻度与 0/100 标签。
+/// 能量环表盘（参照极空 App）：270° 弧，左下角 0、右下角满。
+/// 环内为大号 SOC，电压/电流以描边胶囊显示；弧上带刻度点与霓虹发光。
 class SocGauge extends StatelessWidget {
   final double soc;
   final double totalVoltage;
   final double current;
+  final double power;
 
   const SocGauge({
     super.key,
     required this.soc,
     required this.totalVoltage,
     required this.current,
+    required this.power,
   });
 
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, c) {
-      final size = min(c.maxWidth, 264.0);
+      final size = min(c.maxWidth, 292.0);
       final pct = soc.clamp(0, 100).toDouble();
-      final scheme = Theme.of(context).colorScheme;
+      final track = surface2Of(context).withOpacity(.85);
       return Stack(
         alignment: Alignment.center,
         children: [
-          SizedBox(
-            width: size,
-            height: size,
-            child: CustomPaint(
-                painter: _GaugePainter(
-                    pct: pct,
-                    size: size,
-                    trackColor: surface2Of(context),
-                    tickColor: scheme.onSurface.withOpacity(.55))),
+          CustomPaint(
+            size: Size(size, size),
+            painter: _GaugePainter(pct: pct, size: size, trackColor: track),
           ),
           Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text('${pct.round()}%',
                   style: TextStyle(
-                      fontSize: 48,
+                      fontSize: 58,
                       fontWeight: FontWeight.w800,
-                      color: Theme.of(context).colorScheme.onSurface,
-                      height: 1)),
-              const SizedBox(height: 2),
-              Text('${totalVoltage.toStringAsFixed(2)}V',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: Theme.of(context).colorScheme.onSurface)),
-              const SizedBox(height: 1),
-              Text('${current.toStringAsFixed(2)}A',
-                  style: TextStyle(fontSize: 13, color: AppTheme.green)),
+                      color: AppTheme.green,
+                      height: 1.05,
+                      letterSpacing: -1,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                      shadows: [
+                        Shadow(color: AppTheme.green.withOpacity(.55), blurRadius: 18),
+                      ])),
+              const SizedBox(height: 8),
+              _Capsule(text: '${totalVoltage.toStringAsFixed(2)}V', fontSize: 16),
+              const SizedBox(height: 5),
+              _Capsule(text: '${current.toStringAsFixed(2)}A', fontSize: 15),
+              const SizedBox(height: 5),
+              _Capsule(text: '${power.toStringAsFixed(1)}W', fontSize: 16),
             ],
           ),
         ],
@@ -63,108 +61,116 @@ class SocGauge extends StatelessWidget {
   }
 }
 
+class _Capsule extends StatelessWidget {
+  final String text;
+  final double fontSize;
+  const _Capsule({required this.text, this.fontSize = 16});
+
+  @override
+  Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
+    return Container(
+      width: 132,
+      alignment: Alignment.center,
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AppTheme.green.withOpacity(.55), width: 1.4),
+      ),
+      child: Text(text,
+          style: TextStyle(
+              fontSize: fontSize,
+              fontWeight: FontWeight.w600,
+              color: onSurface,
+              fontFeatures: const [FontFeature.tabularFigures()])),
+    );
+  }
+}
+
 class _GaugePainter extends CustomPainter {
   final double pct;
   final double size;
   final Color trackColor;
-  final Color tickColor;
 
   _GaugePainter({
     required this.pct,
     required this.size,
     required this.trackColor,
-    required this.tickColor,
   });
+
+  static const double _startDeg = 135; // 左下角为 0
+  static const double _sweepDeg = 270; // 右下角为满
 
   @override
   void paint(Canvas canvas, Size size0) {
     final c = Offset(size / 2, size / 2);
-    final r = size * 104 / 264;
-    const startDeg = 135.0; // 左下角为 0
-    const sweepDeg = 270.0; // 右下角为满
-    final arc = _arcRect(c, r);
+    final r = size * 0.405;
+    final arc = Rect.fromCircle(center: c, radius: r);
 
     // 底轨
     final track = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 14
+      ..strokeWidth = 16
       ..strokeCap = StrokeCap.round
       ..color = trackColor;
-    _paintArc(canvas, arc, startDeg, sweepDeg, track);
+    canvas.drawArc(arc, _rad(_startDeg), _rad(_sweepDeg), false, track);
 
-    // 渐变弧
-    final paint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 14
-      ..strokeCap = StrokeCap.round;
-    if (pct <= 50) {
-      paint.shader = SweepGradient(
-        startAngle: _rad(startDeg),
-        endAngle: _rad(startDeg + sweepDeg),
-        colors: [AppTheme.red, AppTheme.green],
-      ).createShader(_gaugeRect(c, r));
-    } else {
-      paint.shader = SweepGradient(
-        startAngle: _rad(startDeg),
-        endAngle: _rad(startDeg + sweepDeg),
-        colors: [AppTheme.green, AppTheme.cyan],
-      ).createShader(_gaugeRect(c, r));
+    // 进度弧（绿→青）+ 外发光
+    if (pct > 0) {
+      final shader = SweepGradient(
+        startAngle: _rad(_startDeg),
+        endAngle: _rad(_startDeg + _sweepDeg),
+        colors: const [AppTheme.green, Color(0xFF19E0B0), AppTheme.cyan],
+      ).createShader(Rect.fromCircle(center: c, radius: r * 1.6));
+      final glow = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 20
+        ..strokeCap = StrokeCap.round
+        ..color = AppTheme.green.withOpacity(.32)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 10);
+      final paint = Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 16
+        ..strokeCap = StrokeCap.round
+        ..shader = shader;
+      final sweep = _rad(_sweepDeg * pct / 100);
+      canvas.drawArc(arc, _rad(_startDeg), sweep, false, glow);
+      canvas.drawArc(arc, _rad(_startDeg), sweep, false, paint);
     }
-    _paintArc(canvas, arc, startDeg, sweepDeg * pct / 100, paint);
 
-    // 表盘刻度（5% 一格，25% 大刻度）
-    final tickPaint = Paint()
-      ..strokeCap = StrokeCap.round
-      ..color = tickColor;
+    // 刻度点（5% 一格，25% 大点）
     for (var p = 0; p <= 100; p += 5) {
-      final a = _rad(startDeg + sweepDeg * p / 100);
+      final a = _rad(_startDeg + _sweepDeg * p / 100);
       final major = p % 25 == 0;
-      final r1 = major ? r * 119 / 104 : r * 113 / 104;
-      final r2 = major ? r * 106 / 104 : r * 109 / 104;
-      tickPaint.strokeWidth = major ? 2.5 : 1;
-      tickPaint.color = tickColor.withOpacity(major ? 0.9 : 0.45);
-      canvas.drawLine(
-        c + Offset(cos(a), sin(a)) * r1,
-        c + Offset(cos(a), sin(a)) * r2,
-        tickPaint,
-      );
+      final rr = r * (major ? 0.885 : 0.905);
+      final dot = Paint()
+        ..color = Colors.white.withOpacity(major ? .55 : .22);
+      canvas.drawCircle(c + Offset(cos(a), sin(a)) * rr, major ? 1.9 : 1.2, dot);
     }
 
-    // 0 / 100 标签（左下 / 右下）
-    final lr = r * 128 / 104;
-    final a0 = _rad(startDeg), a100 = _rad(startDeg + sweepDeg);
-    _label(canvas, c + Offset(cos(a0), sin(a0)) * lr, '0', tickColor);
-    _label(canvas, c + Offset(cos(a100), sin(a100)) * lr, '100', tickColor);
-
-    // 内圈装饰
-    final inner = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2
-      ..color = AppTheme.green.withOpacity(0.08);
-    canvas.drawCircle(c, r * 82 / 104, inner);
+    // 0 / 100 标签
+    final lr = r * 1.19;
+    final a0 = _rad(_startDeg), a100 = _rad(_startDeg + _sweepDeg);
+    _label(canvas, c + Offset(cos(a0), sin(a0)) * lr, '0');
+    _label(canvas, c + Offset(cos(a100), sin(a100)) * lr, '100');
   }
 
-  void _label(Canvas canvas, Offset p, String text, Color color) {
+  void _label(Canvas canvas, Offset p, String text) {
     final tp = TextPainter(
       text: TextSpan(
           text: text,
           style: TextStyle(
-              color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+              color: Colors.white.withOpacity(.45),
+              fontSize: 12,
+              fontWeight: FontWeight.w600)),
       textDirection: TextDirection.ltr,
     )..layout();
-    tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2 - 2));
-  }
-
-  Rect _arcRect(Offset c, double r) => Rect.fromCircle(center: c, radius: r);
-  Rect _gaugeRect(Offset c, double r) => Rect.fromCircle(center: c, radius: r * 1.5);
-
-  void _paintArc(
-      Canvas canvas, Rect arc, double startDeg, double sweepDeg, Paint paint) {
-    canvas.drawArc(arc, _rad(startDeg), _rad(sweepDeg), false, paint);
+    tp.paint(canvas, p - Offset(tp.width / 2, tp.height / 2));
   }
 
   double _rad(double deg) => deg * pi / 180;
 
   @override
-  bool shouldRepaint(_GaugePainter old) => old.pct != pct;
+  bool shouldRepaint(_GaugePainter old) =>
+      old.pct != pct || old.trackColor != trackColor;
 }

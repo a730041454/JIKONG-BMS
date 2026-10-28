@@ -6,7 +6,7 @@ import 'app.dart';
 import 'state/app_state.dart';
 
 /// 是否使用模拟数据（预览自测）。
-/// 生产 / 真实板子：false（默认，走 BLE 极空协议）。
+/// 生产：false（默认，全部数据经 ESP32 网关）。
 const bool kUseMock = false;
 
 void main() {

@@ -6,9 +6,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:provider/provider.dart';
 
 import '../i18n/strings.dart';
+import '../services/update_service.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
 import 'about_screen.dart';
+import 'contact_screen.dart';
+import 'device_qr_screen.dart';
+import 'gateway_screen.dart';
 
 /// 应用设置：语言 / 主题 / 密码保护 / 联系方式 / 关于版本。
 class AppSettingsScreen extends StatefulWidget {
@@ -40,10 +44,10 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
         .showSnackBar(SnackBar(content: Text(m)));
     try {
       final dir = await getApplicationDocumentsDirectory();
-      final f = File('${dir.path}/jk_bms_log.txt');
+      final f = File('${dir.path}/bms_log.txt');
       final d = app.diag;
       final content = [
-        'JikongBMS log @ ${DateTime.now()}',
+        'BMS log @ ${DateTime.now()}',
         'services: ${d.services.join(', ')}',
         'notify: ${d.notifyUuid}  write: ${d.writeUuid}',
         'rx: ${d.rxBytes}B / ${d.rxFrames}F / ok ${d.parseOk} / fail ${d.parseFail}',
@@ -86,20 +90,40 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
                 toast(t(v == 'dark' ? 'toast_theme_dark' : 'toast_theme_light'));
               }),
           _Sec(t('app_pwd'), dim),
-          _SwitchRow(label: t('app_pwd_on'), on: app.pwdEnabled,
-              onTap: () => app.setPwdEnabled(!app.pwdEnabled)),
           _Field(label: t('app_pwd_set'), controller: _pwdCtrl, onChanged: (v) {
             app.setPassword(v);
           }),
+          _Sec(t('gw_title'), dim),
+          _RowBtn(label: t('prov_title'), onTap: () {
+            Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const GatewayScreen()));
+          }),
           _Sec(t('app_contact'), dim),
-          _RowBtn(label: t('app_contact_val'),
-              onTap: () => toast(t('app_contact_val'))),
+          _RowBtn(label: t('wechat_contact'), onTap: () {
+            Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const ContactScreen()));
+          }),
           _Sec(t('app_about'), dim),
           _RowBtn(label: '${t('app')} · v${_version.isEmpty ? '…' : _version}', onTap: () {
             Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const AboutScreen()));
           }),
           _Sec(t('app_sys'), dim),
+          _RowBtn(
+            label:
+                '${t('check_update')}${_version.isEmpty ? '' : ' · v$_version'}',
+            onTap: () =>
+                UpdateService.checkAndPrompt(context, en: app.isEn, manual: true),
+          ),
+          _RowBtn(label: t('gen_qr'), onTap: () {
+            final id = app.rememberedDeviceId;
+            if (id == null || id.isEmpty) {
+              toast(t('gen_qr_empty'));
+              return;
+            }
+            Navigator.of(context).push(
+                MaterialPageRoute(builder: (_) => const DeviceQrScreen()));
+          }),
           _RowBtn(label: t('app_log_export'), onTap: () => _exportLog(context)),
           const SizedBox(height: 16),
           // 连接状态与数据源
@@ -111,7 +135,8 @@ class _AppSettingsScreenState extends State<AppSettingsScreen> {
               Text(t('l_state') + ': ${app.connected ? t('toast_connected') : t('disconnected')}',
                   style: const TextStyle(fontSize: 13)),
               const SizedBox(height: 4),
-              Text('数据源: ${app.useMock ? '模拟数据 (Mock)' : 'BLE · 极空协议 (JK)'}',
+              Text(
+                  '数据源: ${app.useMock ? '模拟数据 (Mock)' : 'ESP32 网关 · ${t('gw_mode_${app.linkMode.name}')}'} · ${app.invProtocolLabel}',
                   style: TextStyle(fontSize: 12, color: dim)),
             ]),
           ),
@@ -167,27 +192,6 @@ class _Seg extends StatelessWidget {
               ),
             ),
           ),
-      ]),
-    );
-  }
-}
-
-class _SwitchRow extends StatelessWidget {
-  final String label;
-  final bool on;
-  final VoidCallback onTap;
-  const _SwitchRow({required this.label, required this.on, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final surface = Theme.of(context).colorScheme.surface;
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(color: surface, borderRadius: BorderRadius.circular(10)),
-      child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-        Text(label, style: const TextStyle(fontSize: 14)),
-        Switch.adaptive(value: on, onChanged: (_) => onTap()),
       ]),
     );
   }

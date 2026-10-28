@@ -4,8 +4,9 @@ import 'package:provider/provider.dart';
 import '../i18n/strings.dart';
 import '../state/app_state.dart';
 import '../theme/app_theme.dart';
+import '../widgets/no_connection.dart';
 
-/// 实时状态：实时数据键值 + 单体电压（最高蓝/最低红）+ 均衡线电阻 + 图表模式。
+/// BMS管理：锂电池实时数据 + 单体电压（最高蓝/最低红）+ 均衡线电阻 + 图表模式。
 class LiveScreen extends StatefulWidget {
   const LiveScreen({super.key});
   @override
@@ -16,39 +17,39 @@ class _LiveScreenState extends State<LiveScreen> {
   @override
   Widget build(BuildContext context) {
     final app = context.watch<AppState>();
-    final t = (k) => L.tr(app.isEn, k);
     final d = app.data;
+    if (d == null) return const NoConnection();
+    final t = (k) => L.tr(app.isEn, k);
     final dim = Theme.of(context).colorScheme.onSurface.withOpacity(.55);
 
     String fmt(double v, int n) => v.toStringAsFixed(n);
-    String dash = '--';
 
     return ListView(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 24),
       children: [
           // 关键指标：电压（绿）/ 电流（青）/ 功率（橙），发光
           Row(children: [
-            _Box(label: t('lf_volt'), value: d == null ? dash : '${fmt(d.totalVoltage, 2)}V', color: AppTheme.green),
+            _Box(label: t('lf_volt'), value: '${fmt(d.totalVoltage, 2)}V', color: AppTheme.green),
             const SizedBox(width: 8),
-            _Box(label: t('lf_cur'), value: d == null ? dash : '${fmt(d.current, 2)}A', color: AppTheme.cyan),
+            _Box(label: t('lf_cur'), value: '${fmt(d.current, 2)}A', color: AppTheme.cyan),
             const SizedBox(width: 8),
-            _Box(label: t('l_pow'), value: d == null ? dash : '${fmt(d.power, 1)}W', color: AppTheme.orange),
+            _Box(label: t('l_pow'), value: '${fmt(d.power, 1)}W', color: AppTheme.orange),
           ]),
           const SizedBox(height: 10),
           // SOC 能量条
-          if (d != null) _SocBar(soc: d.soc, remaining: d.remainingCapacity, nominal: app.nominal),
+          _SocBar(soc: d.soc, remaining: d.remainingCapacity, nominal: app.nominal),
           const SizedBox(height: 10),
           // 容量 / 剩余 / SOC / 温度
           _MetricRow([
-            _m(t('rd_cap'), d == null ? dash : '${fmt(app.nominal, 1)}Ah', dim),
-            _m(t('rd_rem'), d == null ? dash : '${fmt(d.remainingCapacity, 1)}Ah', dim),
-            _m(t('rd_soc'), d == null ? dash : '${fmt(d.soc, 1)}%', dim),
-            _m(t('rd_ptemp'), d == null ? dash : '${fmt(d.maxTemp, 1)}℃', dim),
+            _m(t('rd_cap'), '${fmt(app.nominal, 1)}Ah', dim),
+            _m(t('rd_rem'), '${fmt(d.remainingCapacity, 1)}Ah', dim),
+            _m(t('rd_soc'), '${fmt(d.soc, 1)}%', dim),
+            _m(t('rd_ptemp'), '${fmt(d.maxTemp, 1)}℃', dim),
           ]),
           _SecTitle(t('sec_cell'), dim),
           _HudPanel(child: _CellGrid(app: app)),
           // 温度：T1 保护板 / T2 电池 / T3 机箱内部
-          if (d != null && d.temperatures.isNotEmpty) ...[
+          if (d.temperatures.isNotEmpty) ...[
             _SecTitle(t('temp_title'), dim),
             _TempRow(
               temps: d.temperatures,
@@ -64,9 +65,9 @@ class _LiveScreenState extends State<LiveScreen> {
           _HudPanel(child: _ResGrid(app: app)),
           _SecTitle(t('rd_title'), dim),
           _Grid(rows: [
-            ('${t('rd_delta')} ·', d == null ? dash : '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
-            ('${t('rd_cycles')} ·', '0${t('u_times')}', false),
-            ('${t('rd_sleep')} ·', d == null ? dash : '${d.sleepSeconds}s', false),
+            ('${t('rd_delta')} ·', '${fmt(d.maxCellV - d.minCellV, 3)}V', false),
+            ('${t('rd_cycles')} ·', '${d.cycles}${t('u_times')}', false),
+            ('${t('rd_sleep')} ·', '${d.sleepSeconds}s', false),
             ('${t('rd_type')} ·', t('li_iron'), false),
             ('${t('rd_buz')} ·', t('off'), false),
             ('${t('rd_cells')} ·', '${app.cells}${t('u_series')}', false),

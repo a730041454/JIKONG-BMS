@@ -1,7 +1,7 @@
 name: jikong_bms_app
-description: 贵州帝一无人化装备有限公司 · BMS 监控（极空协议 · 云构建 APK 版）
+description: 贵州帝一无人化装备有限公司 · 储能监控（ESP32 网关 · BMS + 逆变器 · APK 版）
 publish_to: 'none'
-version: 1.0.0+1
+version: 2.0.1+39
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -16,6 +16,8 @@ dependencies:
   permission_handler: ^11.3.1
   package_info_plus: ^8.0.0
   path_provider: ^2.1.4
+  mobile_scanner: ^7.4.2
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:
@@ -26,3 +28,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/logo.png
+    - assets/wechat_qr.png

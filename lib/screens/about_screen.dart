@@ -54,14 +54,7 @@ class _AboutScreenState extends State<AboutScreen> {
           const SizedBox(height: 20),
           // 版本更新内容
           _Sec(t('about_updates'), dim),
-          _UpdateRow('v1.0.15',
-              t('about_u15')),
-          _UpdateRow('v1.0.14',
-              t('about_u14')),
-          _UpdateRow('v1.0.13',
-              t('about_u13')),
-          _UpdateRow('v1.0.12',
-              t('about_u12')),
+          _UpdateRow('v2.0', t('about_v20')),
         ],
       ),
     );

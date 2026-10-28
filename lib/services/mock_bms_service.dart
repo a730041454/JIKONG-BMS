@@ -4,8 +4,8 @@ import 'dart:math';
 import '../models/bms_data.dart';
 import 'bms_data_service.dart';
 
-/// 模拟数据服务（无真板子时用于预览 / 自测）。
-/// 替换为 [BleBmsService] 即接入真实极空协议数据。
+/// 模拟数据服务（无网关/真板时用于预览 / 自测）。
+/// 真机走 [GatewayBmsService]，两者对界面完全同构。
 class MockBmsService extends BmsDataService {
   final _controller = StreamController<BmsData>.broadcast();
   final _random = Random();
@@ -17,27 +17,32 @@ class MockBmsService extends BmsDataService {
   double _nominal = 100;
   double _soc = 88;
   bool _connected = false;
-  bool _charging = false;
-  bool _discharging = false;
+  bool _chgOn = true;
+  bool _disOn = true;
   bool _balancing = true;
   double _temp = 25.7;
   Timer? _timer;
   int _elapsed = 0;
-  final _devices = <BmsDevice>[
-    BmsDevice(name: 'JK-B2A16S20P', id: 'A4:C1:38:2B:7D:10', rssi: -48),
-    BmsDevice(name: 'JK-B1A8S20P', id: 'A4:C1:38:5E:9A:22', rssi: -62),
-    BmsDevice(name: 'BT-SERIAL-04', id: '30:AE:A4:11:0C:77', rssi: -75),
-    BmsDevice(name: 'JK-B2A20S', id: 'A4:C1:38:9F:11:38', rssi: -80),
-  ];
 
   double get nominal => _nominal;
   set nominal(double v) => _nominal = v;
   int get cells => _cells;
   set cells(int v) => _cells = v;
 
-  void setCharge(bool on) => _charging = on;
-  void setDischarge(bool on) => _discharging = on;
-  void setBalance(bool on) => _balancing = on;
+  void setCharge(bool on) {
+    _chgOn = on;
+    _emit();
+  }
+
+  void setDischarge(bool on) {
+    _disOn = on;
+    _emit();
+  }
+
+  void setBalance(bool on) {
+    _balancing = on;
+    _emit();
+  }
 
   double _rnd(double a, double b) => a + _random.nextDouble() * (b - a);
 
@@ -71,8 +76,10 @@ class MockBmsService extends BmsDataService {
       maxCellV: maxV,
       minCellV: minV,
       balancing: _balancing,
-      chargeMos: true,
-      dischargeMos: true,
+      balanceCurrent: _balancing ? 0.639 : 0,
+      chargeMos: _chgOn,
+      dischargeMos: _disOn,
+      prechargeMos: false,
       balanceStatus: _balancing ? 0xFFFF : 0,
       logCount: 49,
       cycles: 0,
@@ -87,16 +94,10 @@ class MockBmsService extends BmsDataService {
   double get _current {
     final slow = sin(_elapsed * 0.12);
     if (slow > 0.85) {
-      _charging = true;
-      _discharging = false;
       return _rnd(1.5, 5);
     } else if (slow < -0.85) {
-      _discharging = true;
-      _charging = false;
       return -_rnd(1.5, 5);
     }
-    _charging = false;
-    _discharging = false;
     return _rnd(-0.2, 0.2);
   }
 
@@ -106,30 +107,18 @@ class MockBmsService extends BmsDataService {
   @override
   bool get isConnected => _connected;
 
-  @override
-  Future<List<BmsDevice>> scan(
-      {Duration timeout = const Duration(seconds: 6)}) async {
-    await Future.delayed(const Duration(milliseconds: 800));
-    return List.of(_devices);
-  }
-
-  @override
-  Future<bool> connect(String deviceId) async {
-    await Future.delayed(const Duration(milliseconds: 400));
+  /// 开始推流（界面无需连接流程，构造后即调用）。
+  void start() {
     _connected = true;
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
       _elapsed += 1;
-      _controller.add(_makeData());
+      _emit();
     });
-    return true;
   }
 
-  @override
-  Future<void> disconnect() async {
-    _connected = false;
-    _timer?.cancel();
-    _timer = null;
+  void _emit() {
+    if (!_controller.isClosed) _controller.add(_makeData());
   }
 
   @override

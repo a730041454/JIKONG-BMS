@@ -12,8 +12,10 @@ class BmsData {
   final double maxCellV; // V
   final double minCellV; // V
   final bool balancing; // 是否均衡中
+  final double balanceCurrent; // 均衡电流（A）
   final bool chargeMos; // 充电 MOS 状态（保护板为准）
   final bool dischargeMos; // 放电 MOS 状态（保护板为准）
+  final bool prechargeMos; // 预充状态（保护板为准）
   final int balanceStatus; // 均衡位图
   final int logCount; // 详细日志条数
   final int cycles; // 循环次数
@@ -36,8 +38,10 @@ class BmsData {
     required this.maxCellV,
     required this.minCellV,
     required this.balancing,
+    required this.balanceCurrent,
     required this.chargeMos,
     required this.dischargeMos,
+    required this.prechargeMos,
     required this.balanceStatus,
     required this.logCount,
     required this.cycles,
@@ -65,8 +69,10 @@ class BmsData {
     double? maxCellV,
     double? minCellV,
     bool? balancing,
+    double? balanceCurrent,
     bool? chargeMos,
     bool? dischargeMos,
+    bool? prechargeMos,
     int? balanceStatus,
     int? logCount,
     int? cycles,
@@ -89,8 +95,10 @@ class BmsData {
       maxCellV: maxCellV ?? this.maxCellV,
       minCellV: minCellV ?? this.minCellV,
       balancing: balancing ?? this.balancing,
+      balanceCurrent: balanceCurrent ?? this.balanceCurrent,
       chargeMos: chargeMos ?? this.chargeMos,
       dischargeMos: dischargeMos ?? this.dischargeMos,
+      prechargeMos: prechargeMos ?? this.prechargeMos,
       balanceStatus: balanceStatus ?? this.balanceStatus,
       logCount: logCount ?? this.logCount,
       cycles: cycles ?? this.cycles,

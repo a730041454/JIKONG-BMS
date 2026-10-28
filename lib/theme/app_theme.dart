@@ -17,11 +17,11 @@ class AppTheme {
   static const Color cyan = Color(0xFF00D0FF);
   static const Color blue = Color(0xFF0A84FF);
 
-  static const Color darkBg = Color(0xFF0A0A0A);
-  static const Color darkSurface = Color(0xFF141414);
-  static const Color darkSurface2 = Color(0xFF1C1C1C);
-  static const Color darkText = Color(0xFFE8E8E8);
-  static const Color darkDim = Color(0xFF8A8A8A);
+  static const Color darkBg = Color(0xFF05080F);
+  static const Color darkSurface = Color(0xFF0D1622);
+  static const Color darkSurface2 = Color(0xFF18232F);
+  static const Color darkText = Color(0xFFE8EEF5);
+  static const Color darkDim = Color(0xFF8794A3);
 
   static const Color lightBg = Color(0xFFF2F4F7);
   static const Color lightSurface = Color(0xFFFFFFFF);
